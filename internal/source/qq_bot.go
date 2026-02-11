@@ -13,6 +13,7 @@ import (
 	qzone "github.com/guohuiyuan/qzone-go"
 	"github.com/guohuiyuan/qzonewall-go/internal/config"
 	"github.com/guohuiyuan/qzonewall-go/internal/model"
+	"github.com/guohuiyuan/qzonewall-go/internal/rkey"
 	"github.com/guohuiyuan/qzonewall-go/internal/render"
 	"github.com/guohuiyuan/qzonewall-go/internal/store"
 
@@ -81,6 +82,7 @@ func (b *QQBot) Start() error {
 			Driver:         drivers,
 		}, nil)
 	}()
+	b.warmupRKeyCache()
 
 	log.Printf("[QQBot] 已连接 NapCat, %d 个 WS 驱动", len(drivers))
 	return nil
@@ -97,41 +99,72 @@ func (b *QQBot) Stop() {
 
 func (b *QQBot) registerCommands() {
 	// ── 用户命令 ──
-	b.engine.OnCommand("投稿").Handle(func(ctx *zero.Ctx) {
+	b.engine.OnCommand("投稿").Handle(b.withRKey(func(ctx *zero.Ctx) {
 		b.handleContribute(ctx, false)
-	})
-	b.engine.OnCommand("匿名投稿").Handle(func(ctx *zero.Ctx) {
+	}))
+	b.engine.OnCommand("匿名投稿").Handle(b.withRKey(func(ctx *zero.Ctx) {
 		b.handleContribute(ctx, true)
-	})
-	b.engine.OnCommand("撤稿").Handle(func(ctx *zero.Ctx) {
+	}))
+	b.engine.OnCommand("撤稿").Handle(b.withRKey(func(ctx *zero.Ctx) {
 		b.handleRecall(ctx)
-	})
+	}))
 
 	// ── 管理员命令 ──
-	b.engine.OnCommand("看稿", zero.SuperUserPermission).SetBlock(true).Handle(func(ctx *zero.Ctx) {
+	b.engine.OnCommand("看稿", zero.SuperUserPermission).SetBlock(true).Handle(b.withRKey(func(ctx *zero.Ctx) {
 		b.handleViewPost(ctx)
-	})
-	b.engine.OnCommand("过稿", zero.SuperUserPermission).SetBlock(true).Handle(func(ctx *zero.Ctx) {
+	}))
+	b.engine.OnCommand("过稿", zero.SuperUserPermission).SetBlock(true).Handle(b.withRKey(func(ctx *zero.Ctx) {
 		b.handleApprove(ctx)
-	})
-	b.engine.OnCommand("拒稿", zero.SuperUserPermission).SetBlock(true).Handle(func(ctx *zero.Ctx) {
+	}))
+	b.engine.OnCommand("拒稿", zero.SuperUserPermission).SetBlock(true).Handle(b.withRKey(func(ctx *zero.Ctx) {
 		b.handleReject(ctx)
-	})
-	b.engine.OnCommand("待审核", zero.SuperUserPermission).SetBlock(true).Handle(func(ctx *zero.Ctx) {
+	}))
+	b.engine.OnCommand("待审核", zero.SuperUserPermission).SetBlock(true).Handle(b.withRKey(func(ctx *zero.Ctx) {
 		b.handleListPending(ctx)
-	})
-	b.engine.OnCommand("发说说", zero.SuperUserPermission).SetBlock(true).Handle(func(ctx *zero.Ctx) {
+	}))
+	b.engine.OnCommand("发说说", zero.SuperUserPermission).SetBlock(true).Handle(b.withRKey(func(ctx *zero.Ctx) {
 		b.handleDirectPublish(ctx)
-	})
-	b.engine.OnCommand("扫码", zero.SuperUserPermission).SetBlock(true).Handle(func(ctx *zero.Ctx) {
+	}))
+	b.engine.OnCommand("扫码", zero.SuperUserPermission).SetBlock(true).Handle(b.withRKey(func(ctx *zero.Ctx) {
 		b.handleScanQR(ctx)
-	})
-	b.engine.OnCommand("刷新cookie", zero.SuperUserPermission).SetBlock(true).Handle(func(ctx *zero.Ctx) {
+	}))
+	b.engine.OnCommand("刷新cookie", zero.SuperUserPermission).SetBlock(true).Handle(b.withRKey(func(ctx *zero.Ctx) {
 		b.handleRefreshCookie(ctx)
-	})
-	b.engine.OnCommandGroup([]string{"帮助", "help"}).SetBlock(true).Handle(func(ctx *zero.Ctx) {
+	}))
+	b.engine.OnCommandGroup([]string{"帮助", "help"}).SetBlock(true).Handle(b.withRKey(func(ctx *zero.Ctx) {
 		b.handleHelp(ctx)
-	})
+	}))
+}
+
+func (b *QQBot) withRKey(next func(*zero.Ctx)) func(*zero.Ctx) {
+	return func(ctx *zero.Ctx) {
+		b.captureRKey(ctx)
+		next(ctx)
+	}
+}
+
+func (b *QQBot) captureRKey(ctx *zero.Ctx) {
+	if ctx == nil {
+		return
+	}
+	_, _ = rkey.UpdateFromRaw(ctx.NcGetRKey().Raw)
+}
+
+func (b *QQBot) warmupRKeyCache() {
+	go func() {
+		// 启动后主动预热 rkey，降低 web/worker 首次刷新时缓存为空的概率。
+		for i := 0; i < 60; i++ {
+			if strings.TrimSpace(rkey.Get()) != "" {
+				return
+			}
+			if strings.TrimSpace(rkey.RefreshFromBots()) != "" {
+				log.Println("[QQBot] rkey cache warmed")
+				return
+			}
+			time.Sleep(time.Second)
+		}
+		log.Println("[QQBot] rkey cache warmup timeout: no active bot context")
+	}()
 }
 
 // ──────────────────────────────────────────

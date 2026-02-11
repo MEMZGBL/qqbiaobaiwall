@@ -2,6 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
+<meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>登录 - 表白墙</title>
 <style>
@@ -22,7 +23,7 @@
 <body>
 <div class="card">
   <h1>💌 表白墙</h1>
-  <p class="subtitle">请登录以继续</p>
+  <p class="subtitle">仅管理员登录</p>
   {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
   <form method="POST" action="/login">
     <div class="form-group">
@@ -33,8 +34,9 @@
       <label>密码</label>
       <input type="password" name="password" required>
     </div>
-    <button type="submit">登 录</button>
+    <button type="submit">登录</button>
   </form>
 </div>
 </body>
 </html>
+

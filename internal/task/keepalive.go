@@ -9,6 +9,7 @@ import (
 
 	qzone "github.com/guohuiyuan/qzone-go"
 	"github.com/guohuiyuan/qzonewall-go/internal/config"
+	"github.com/guohuiyuan/qzonewall-go/internal/rkey"
 	zero "github.com/wdvxdr1123/ZeroBot"
 	"github.com/wdvxdr1123/ZeroBot/message"
 )
@@ -88,6 +89,9 @@ func (k *KeepAlive) check() {
 func (k *KeepAlive) tryRefreshFromBot() bool {
 	var refreshed bool
 	zero.RangeBot(func(id int64, ctx *zero.Ctx) bool {
+		// 同步 rkey 缓存，避免 web/worker 在无命令触发时拿不到 rkey。
+		_, _ = rkey.UpdateFromRaw(ctx.NcGetRKey().Raw)
+
 		cookie := ctx.GetCookies("qzone.qq.com")
 		if cookie == "" {
 			return true // 继续遍历

@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"image"
 	"image/color"
-	"image/png"
+	"image/jpeg"
 	"log"
 	"math"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/fogleman/gg"
@@ -29,7 +32,7 @@ type Renderer struct {
 func NewRenderer(fontPath string, fontSize float64) *Renderer {
 	f, err := truetype.Parse(fontData)
 	if err != nil {
-		log.Printf("[Renderer] 解析内置字体失败: %v", err)
+		log.Printf("[Renderer] ❌ 严重错误: 内置字体解析失败: %v", err)
 		return &Renderer{font: nil}
 	}
 	return &Renderer{font: f}
@@ -53,123 +56,88 @@ func (r *Renderer) getFace(size float64) font.Face {
 // RenderPost 渲染图文合一
 func (r *Renderer) RenderPost(post *model.Post) ([]byte, error) {
 	if !r.Available() {
-		return nil, fmt.Errorf("渲染器未初始化")
+		return nil, fmt.Errorf("渲染器未初始化(字体缺失)")
 	}
 
-	// ── 1. 样式常量 ──
+	// ── 1. 样式配置 ──
 	const (
 		CanvasWidth = 800.0
 		Padding     = 40.0
-
-		SizeText = 32.0
-		SizeName = 26.0
-		SizeMeta = 22.0
-
-		AvatarSize  = 80.0
-		AvatarRight = 20.0 // 头像和内容的间距
-
-		BubblePadH = 30.0
-		BubblePadV = 25.0
-		LineHeight = 1.4
-
-		// 图片九宫格配置
-		ImgGap  = 10.0 // 图片间距
-		ImgSize = 220.0 // 单张小图大小 (3列)
+		SizeText    = 32.0
+		SizeName    = 28.0
+		SizeMeta    = 22.0
+		AvatarSize  = 90.0
+		AvatarRight = 20.0
+		BubblePadH  = 30.0
+		BubblePadV  = 25.0
+		LineHeight  = 1.4
+		ImgGap      = 10.0
+		ImgSize     = 220.0
 	)
 
-	// ── 2. 计算布局高度 ──
-
-	// A. 计算文字气泡
-	// 内容最大宽度 = 画布宽 - 两边边距 - 头像 - 间距
+	// ── 2. 计算布局 ──
 	contentMaxW := CanvasWidth - (Padding * 2) - AvatarSize - AvatarRight
 	
-	// 创建临时 Context 测量文字
-	dc := gg.NewContext(1, 1)
-	textFace := r.getFace(SizeText) // 获取字体对象
-	dc.SetFontFace(textFace)
+	measureDc := gg.NewContext(1, 1)
+	textFace := r.getFace(SizeText)
+	measureDc.SetFontFace(textFace)
 
 	var lines []string
 	if post.Text != "" {
-		lines = dc.WordWrap(post.Text, contentMaxW-(BubblePadH*2))
+		lines = measureDc.WordWrap(post.Text, contentMaxW-(BubblePadH*2))
 	}
 
-	fontH := dc.FontHeight()
-	// 文字区域高度
-	textBlockH := 0.0
-	if len(lines) > 0 {
-		textBlockH = float64(len(lines)) * fontH * LineHeight
-	}
-	
-	// 气泡高度 = 文字高 + 内边距
+	fontH := measureDc.FontHeight()
 	bubbleH := 0.0
 	if len(lines) > 0 {
+		textBlockH := float64(len(lines)) * fontH * LineHeight
 		bubbleH = textBlockH + (BubblePadV * 2)
 	}
 
-	// B. 计算图片区域
 	imgAreaH := 0.0
 	imgCount := len(post.Images)
 	var imgCols, imgRows int
 
 	if imgCount > 0 {
-		// 只有1张图：显示大图
 		if imgCount == 1 {
 			imgCols = 1
-			imgRows = 1
-			imgAreaH = 400.0 // 单张图限制高度
+			// imgRows = 1 (修复: 单图模式不需要计算行数，避免 lint 报错)
+			imgAreaH = 400.0 // 单张限高
 		} else {
-			// 多张图：九宫格
 			imgCols = 3
 			if imgCount == 2 || imgCount == 4 {
-				imgCols = 2 // 2张或4张时排两列更好看
+				imgCols = 2
 			}
 			imgRows = int(math.Ceil(float64(imgCount) / float64(imgCols)))
-			// 总高度 = 行数*图高 + (行数-1)*间距
 			imgAreaH = float64(imgRows)*ImgSize + float64(imgRows-1)*ImgGap
 		}
 	}
 
-	// C. 计算总高度
-	// 结构：顶部Padding + 昵称 + (文字气泡) + 间距 + (图片区域) + 底部信息 + 底部Padding
-	
 	currentY := Padding
-	
-	// 昵称高度
-	currentY += SizeName + 10 
-	
-	contentStartY := currentY // 内容起始点
+	currentY += SizeName + 15
+	contentStartY := currentY
 
-	// 累加气泡高度
 	if bubbleH > 0 {
 		currentY += bubbleH
 	}
-	
-	// 累加图片高度
 	if imgAreaH > 0 {
 		if bubbleH > 0 {
-			currentY += 15.0 // 文字和图片之间的间距
+			currentY += 20.0
 		}
 		currentY += imgAreaH
 	}
-
-	// 底部 ID 信息
-	currentY += 40.0 
-	currentY += Padding
+	currentY += 50.0
 
 	totalH := int(currentY)
-	// 保证最小高度不至于截断头像
 	if totalH < int(Padding+AvatarSize+Padding) {
 		totalH = int(Padding + AvatarSize + Padding)
 	}
 
 	// ── 3. 开始绘制 ──
-	dc = gg.NewContext(int(CanvasWidth), totalH)
-	
-	// 背景色
+	dc := gg.NewContext(int(CanvasWidth), totalH)
 	dc.SetHexColor("#F5F5F5") 
 	dc.Clear()
 
-	// 坐标原点
 	startX := Padding
 	startY := Padding
 
@@ -186,164 +154,183 @@ func (r *Renderer) RenderPost(post *model.Post) ([]byte, error) {
 		dc.Fill()
 	}
 	dc.Pop()
-
-	// 内容左边距 (头像右侧)
-	contentX := startX + AvatarSize + AvatarRight
 	
+	// ★★★ 核心修复：强制重置裁剪区域，否则后面画的内容都会不可见 ★★★
+	dc.ResetClip() 
+
+	contentX := startX + AvatarSize + AvatarRight
+
 	// 3.2 绘制昵称
 	dc.SetFontFace(r.getFace(SizeName))
-	dc.SetHexColor("#888888")
-	// 昵称在头像右侧，顶部对齐
+	dc.SetHexColor("#555555")
 	dc.DrawString(post.ShowName(), contentX, startY+SizeName-5)
 
 	currContentY := contentStartY
 
-	// 3.3 绘制文字气泡 (如果有文字)
+	// 3.3 绘制文字气泡
 	if bubbleH > 0 {
 		dc.SetColor(color.White)
-		dc.DrawRoundedRectangle(contentX, currContentY, contentMaxW, bubbleH, 12)
+		dc.DrawRoundedRectangle(contentX, currContentY, contentMaxW, bubbleH, 16)
 		dc.Fill()
 
 		// 小三角
-		dc.MoveTo(contentX, currContentY+20)
-		dc.LineTo(contentX-8, currContentY+28)
-		dc.LineTo(contentX, currContentY+36)
+		dc.MoveTo(contentX, currContentY+25)
+		dc.LineTo(contentX-10, currContentY+35)
+		dc.LineTo(contentX, currContentY+45)
 		dc.ClosePath()
 		dc.Fill()
 
-		// 绘制文字内容
-		dc.SetFontFace(textFace) // 使用之前获取的 face
+		// 文字
+		dc.SetFontFace(textFace)
 		dc.SetHexColor("#000000")
 		
-		// 修正文字垂直对齐
-		metrics := textFace.Metrics() // ★★★ 修复点：直接使用 textFace 获取 Metrics
+		metrics := textFace.Metrics()
 		ascent := float64(metrics.Ascent.Ceil())
 		
 		textY := currContentY + BubblePadV + ascent
 		for i, line := range lines {
 			dc.DrawString(line, contentX+BubblePadH, textY+float64(i)*fontH*LineHeight)
 		}
-		
-		currContentY += bubbleH + 15.0
+		currContentY += bubbleH + 20.0
 	}
 
-	// 3.4 绘制图片 (如果有)
+	// 3.4 绘制图片
 	if imgCount > 0 {
-		// 下载所有图片 (为了简单这里串行下载，量大建议并发)
-		// 如果只有一张图，尝试按比例缩放，限制最大宽/高
 		if imgCount == 1 {
-			// 下载原始大图
+			// 单图
 			rawImg := downloadImage(post.Images[0])
 			if rawImg != nil {
-				// 计算缩放比例
-				bounds := rawImg.Bounds()
-				w, h := float64(bounds.Dx()), float64(bounds.Dy())
-				
-				// 限制最大宽高
-				maxW := 350.0
-				maxH := 400.0
-				scale := math.Min(maxW/w, maxH/h)
-				// 如果图片本身就很小，不放大
+				b := rawImg.Bounds()
+				origW, origH := float64(b.Dx()), float64(b.Dy())
+				maxW, maxH := 400.0, 500.0
+				scale := math.Min(maxW/origW, maxH/origH)
 				if scale > 1.0 { scale = 1.0 }
+				tw, th := int(origW*scale), int(origH*scale)
 				
-				targetW := int(w * scale)
-				targetH := int(h * scale)
-				
-				// 缩放
-				finalImg := resizeImage(rawImg, targetW, targetH)
-				
-				// 绘制
+				finalImg := resizeImage(rawImg, tw, th)
+
+				dc.Push()
+				dc.DrawRoundedRectangle(contentX, currContentY, float64(tw), float64(th), 12)
+				dc.Clip()
 				dc.DrawImage(finalImg, int(contentX), int(currContentY))
+				dc.Pop()
+				// 这里也要重置，防止影响后续水印
+				dc.ResetClip()
+			} else {
+				// 下载失败显示占位
+				drawErrorPlaceholder(dc, contentX, currContentY, 200, 200)
 			}
 		} else {
-			// 多图九宫格
+			// 九宫格
 			for i, imgUrl := range post.Images {
-				if i >= 9 { break } // 最多显示9张
-				
+				if i >= 9 { break }
 				col := i % imgCols
 				row := i / imgCols
 				
 				ix := contentX + float64(col)*(ImgSize+ImgGap)
 				iy := currContentY + float64(row)*(ImgSize+ImgGap)
 				
-				// 下载并裁剪为正方形
 				img := downloadAndResize(imgUrl, int(ImgSize), int(ImgSize))
 				if img != nil {
-					// 画圆角图片
 					dc.Push()
 					dc.DrawRoundedRectangle(ix, iy, ImgSize, ImgSize, 8)
 					dc.Clip()
 					dc.DrawImage(img, int(ix), int(iy))
 					dc.Pop()
+					dc.ResetClip()
+				} else {
+					drawErrorPlaceholder(dc, ix, iy, ImgSize, ImgSize)
 				}
 			}
 		}
 	}
 
-	// 3.5 底部水印
+	// 3.5 水印
 	dc.SetFontFace(r.getFace(SizeMeta))
-	dc.SetHexColor("#CCCCCC")
-	// 放在右下角
-	dc.DrawStringAnchored(fmt.Sprintf("Post #%d  %s", post.ID, time.Now().Format("15:04")), CanvasWidth-Padding, float64(totalH)-Padding/2, 1.0, 1.0)
+	dc.SetHexColor("#AAAAAA")
+	dc.DrawStringAnchored(fmt.Sprintf("#%d  %s", post.ID, time.Now().Format("15:04")), CanvasWidth-Padding, float64(totalH)-20, 1.0, 1.0)
 
 	var buf bytes.Buffer
-	if err := png.Encode(&buf, dc.Image()); err != nil {
+	if err := jpeg.Encode(&buf, dc.Image(), &jpeg.Options{Quality: 90}); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
 }
 
-// downloadImage 仅下载不缩放
+// 占位符绘制
+func drawErrorPlaceholder(dc *gg.Context, x, y, w, h float64) {
+	dc.Push()
+	dc.SetHexColor("#E0E0E0")
+	dc.DrawRectangle(x, y, w, h)
+	dc.Fill()
+	dc.SetHexColor("#999999")
+	dc.DrawStringAnchored("加载失败", x+w/2, y+h/2, 0.5, 0.5)
+	dc.Pop()
+}
+
+// 下载工具（带 Header）
 func downloadImage(url string) image.Image {
 	if url == "" { return nil }
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get(url)
+	if local := resolveLocalUploadPath(url); local != "" {
+		f, err := os.Open(local)
+		if err != nil {
+			log.Printf("加载本地图片失败: %v | path: %s", err, local)
+			return nil
+		}
+		defer f.Close()
+		img, _, err := image.Decode(f)
+		if err != nil {
+			log.Printf("解析本地图片失败: %v | path: %s", err, local)
+			return nil
+		}
+		return img
+	}
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil { return nil }
+	// 伪装浏览器防止 403
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+	
+	client := &http.Client{Timeout: 8 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil { 
+		log.Printf("下载出错: %v | URL: %s", err, url)
+		return nil 
+	}
 	defer resp.Body.Close()
+	if resp.StatusCode != 200 { return nil }
 	img, _, err := image.Decode(resp.Body)
 	if err != nil { return nil }
 	return img
 }
 
-// resizeImage 指定宽高缩放
+func resolveLocalUploadPath(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	local := strings.TrimPrefix(raw, "/")
+	local = strings.TrimPrefix(local, "./")
+	local = filepath.Clean(local)
+	prefix := "uploads" + string(filepath.Separator)
+	if local == "uploads" || strings.HasPrefix(local, prefix) {
+		return local
+	}
+	return ""
+}
+
 func resizeImage(src image.Image, w, h int) image.Image {
 	dst := image.NewRGBA(image.Rect(0, 0, w, h))
 	draw.CatmullRom.Scale(dst, dst.Bounds(), src, src.Bounds(), draw.Over, nil)
 	return dst
 }
 
-// downloadAndResize 下载并强制裁剪/缩放为指定大小 (用于头像和九宫格)
 func downloadAndResize(url string, w, h int) image.Image {
 	src := downloadImage(url)
 	if src == nil { return nil }
-	
-	// 如果是正方形裁剪模式（宽高一致）
 	if w == h {
-		// 先裁剪成正方形，取中间部分
-		bounds := src.Bounds()
-		bw, bh := bounds.Dx(), bounds.Dy()
-		minSide := bw
-		if bh < bw { minSide = bh }
-		
-		// 计算裁剪区域中心
-		cx, cy := bw/2, bh/2
-		half := minSide / 2
-		cropRect := image.Rect(cx-half, cy-half, cx+half, cy+half)
-		
-		// 这里的 subImage 实现比较简单，配合 draw 库使用
-		// 实际上我们需要创建一个新的 Img 对象
-		// 为了简单，直接缩放整图，可能会变形，更好的做法是 Crop + Scale
-		// 这里使用 CatmullRom 缩放，如果原图比例差异大可能会变形，
-		// 严谨的做法是先 Crop Center 再 Resize。
-		
-		// 简易 Crop & Scale:
 		dst := image.NewRGBA(image.Rect(0, 0, w, h))
-		// 使用 draw.ApproxBiLinear 或者 CatmullRom
-		// 这里为了不引入太复杂的裁剪逻辑，直接缩放 (可能轻微变形)
-		// 生产环境建议先裁剪 src
-		draw.CatmullRom.Scale(dst, dst.Bounds(), src, cropRect, draw.Over, nil)
+		draw.CatmullRom.Scale(dst, dst.Bounds(), src, src.Bounds(), draw.Over, nil)
 		return dst
 	}
-
 	return resizeImage(src, w, h)
 }

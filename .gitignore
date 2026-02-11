@@ -1,0 +1,5 @@
+config.yaml
+cookie.txt
+uploads/
+data.db*
+*.exe

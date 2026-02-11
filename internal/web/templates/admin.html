@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>管理后台 - 表白墙</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #f5f5f5; min-height: 100vh; }
+  .navbar { background: white; padding: 12px 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; justify-content: space-between; align-items: center; }
+  .navbar h2 { color: #333; font-size: 18px; }
+  .navbar-right { display: flex; align-items: center; gap: 16px; font-size: 13px; }
+  .navbar-right a { color: #667eea; text-decoration: none; }
+  .container { max-width: 900px; margin: 20px auto; padding: 0 16px; }
+
+  /* 状态栏 */
+  .status-bar { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+  .status-bar .badge { padding: 6px 14px; border-radius: 20px; font-size: 13px; cursor: pointer; text-decoration: none; transition: all 0.2s; }
+  .badge.active { color: white; }
+  .badge.all { background: #f0f0f0; color: #333; } .badge.all.active { background: #333; }
+  .badge.pending { background: #fff7ed; color: #c2410c; } .badge.pending.active { background: #ea580c; }
+  .badge.approved { background: #f0fdf4; color: #166534; } .badge.approved.active { background: #16a34a; }
+  .badge.rejected { background: #fff5f5; color: #c53030; } .badge.rejected.active { background: #dc2626; }
+  .badge.published { background: #eff6ff; color: #1d4ed8; } .badge.published.active { background: #2563eb; }
+
+  /* Cookie 状态 */
+  .cookie-bar { background: white; padding: 12px 16px; border-radius: 10px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+  .cookie-status { font-size: 14px; }
+  .cookie-status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+  .dot.green { background: #22c55e; }
+  .dot.red { background: #ef4444; }
+  .btn-sm { padding: 6px 14px; border-radius: 6px; border: none; font-size: 13px; cursor: pointer; }
+  .btn-primary { background: #667eea; color: white; }
+  .btn-primary:hover { background: #5a6fd6; }
+
+  /* 投稿卡片 */
+  .post-card { background: white; border-radius: 10px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+  .post-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .post-id { font-weight: 700; color: #333; }
+  .post-meta { color: #999; font-size: 12px; }
+  .post-status { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+  .post-status.pending { background: #fff7ed; color: #c2410c; }
+  .post-status.approved { background: #f0fdf4; color: #166534; }
+  .post-status.rejected { background: #fff5f5; color: #c53030; }
+  .post-status.failed { background: #fff5f5; color: #c53030; }
+  .post-status.published { background: #eff6ff; color: #1d4ed8; }
+  .post-author { color: #666; font-size: 13px; margin-bottom: 6px; }
+  .post-text { color: #333; font-size: 14px; line-height: 1.6; margin-bottom: 8px; white-space: pre-wrap; word-break: break-all; }
+  .post-images { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+  .post-images img { width: 80px; height: 80px; object-fit: cover; border-radius: 6px; cursor: pointer; }
+  .post-actions { display: flex; gap: 8px; }
+  .btn-approve { background: #22c55e; color: white; border: none; padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .btn-reject { background: #ef4444; color: white; border: none; padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .btn-approve:hover { background: #16a34a; }
+  .btn-reject:hover { background: #dc2626; }
+  .empty { text-align: center; padding: 40px; color: #999; font-size: 16px; }
+
+  /* QR Modal */
+  .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 100; align-items: center; justify-content: center; }
+  .modal-overlay.show { display: flex; }
+  .modal { background: white; padding: 30px; border-radius: 16px; text-align: center; max-width: 340px; }
+  .modal h3 { margin-bottom: 16px; }
+  .modal img { border: 1px solid #eee; border-radius: 8px; }
+  .modal .qr-status { margin-top: 12px; font-size: 14px; color: #666; }
+  .modal .btn-close { margin-top: 16px; padding: 8px 24px; background: #f0f0f0; border: none; border-radius: 8px; cursor: pointer; }
+
+  .msg { padding: 10px 16px; border-radius: 8px; margin-bottom: 12px; font-size: 14px; }
+  .msg.ok { background: #f0fdf4; color: #166534; }
+</style>
+</head>
+<body>
+<div class="navbar">
+  <h2>🔧 表白墙管理</h2>
+  <div class="navbar-right">
+    <span style="color:#999">{{.Account.Username}}</span>
+    <a href="/submit">投稿页</a>
+    <a href="/logout">退出</a>
+  </div>
+</div>
+<div class="container">
+  {{if .Message}}<div class="msg ok">{{.Message}}</div>{{end}}
+
+  <!-- Cookie 状态 -->
+  <div class="cookie-bar">
+    <div class="cookie-status">
+      {{if .CookieValid}}
+        <span class="dot green"></span>QQ空间已登录 (UIN: {{.QzoneUIN}})
+      {{else}}
+        <span class="dot red"></span>QQ空间未登录
+      {{end}}
+    </div>
+    <button class="btn-sm btn-primary" onclick="showQRModal()">扫码登录</button>
+  </div>
+
+  <!-- 状态筛选 -->
+  <div class="status-bar">
+    <a class="badge all {{if eq .StatusFilter ""}}active{{end}}" href="/admin">全部</a>
+    <a class="badge pending {{if eq .StatusFilter "pending"}}active{{end}}" href="/admin?status=pending">
+      待审核 ({{.PendingCount}})
+    </a>
+    <a class="badge approved {{if eq .StatusFilter "approved"}}active{{end}}" href="/admin?status=approved">已通过</a>
+    <a class="badge rejected {{if eq .StatusFilter "rejected"}}active{{end}}" href="/admin?status=rejected">已拒绝</a>
+    <a class="badge published {{if eq .StatusFilter "published"}}active{{end}}" href="/admin?status=published">已发布</a>
+  </div>
+
+  <!-- 投稿列表 -->
+  {{if .Posts}}
+    {{range .Posts}}
+    <div class="post-card" id="post-{{.ID}}">
+      <div class="post-header">
+        <div>
+          <span class="post-id">#{{.ID}}</span>
+          <span class="post-status {{statusClass .Status}}">{{statusText .Status}}</span>
+        </div>
+        <span class="post-meta">{{formatTime .CreateTime}}</span>
+      </div>
+      <div class="post-author">
+        {{if .Anon}}匿名用户{{else}}{{.Name}}{{if .UIN}} ({{.UIN}}){{end}}{{end}}
+      </div>
+      {{if .Text}}<div class="post-text">{{.Text}}</div>{{end}}
+      {{if hasImages .Images}}
+      <div class="post-images">
+        {{range .Images}}<img src="{{.}}" onclick="window.open(this.src)" alt="图片">{{end}}
+      </div>
+      {{end}}
+      {{if .Reason}}<div style="color:#999;font-size:13px;margin-bottom:8px">理由: {{.Reason}}</div>{{end}}
+      {{if eq (printf "%s" .Status) "pending"}}
+      <div class="post-actions">
+        <button class="btn-approve" onclick="approvePost({{.ID}})">✓ 通过</button>
+        <button class="btn-reject" onclick="rejectPost({{.ID}})">✗ 拒绝</button>
+      </div>
+      {{end}}
+    </div>
+    {{end}}
+  {{else}}
+    <div class="empty">📭 暂无投稿</div>
+  {{end}}
+</div>
+
+<!-- QR Code Modal -->
+<div class="modal-overlay" id="qrModal">
+  <div class="modal">
+    <h3>📱 扫码登录QQ空间</h3>
+    <img id="qrImage" src="" width="200" height="200" style="display:none">
+    <div class="qr-status" id="qrStatus">加载中...</div>
+    <button class="btn-close" onclick="closeQRModal()">关闭</button>
+  </div>
+</div>
+
+<script>
+async function approvePost(id) {
+  if (!confirm('确认通过稿件 #' + id + '?')) return;
+  try {
+    const resp = await fetch('/api/approve', {
+      method: 'POST',
+      headers: {'Content-Type':'application/x-www-form-urlencoded'},
+      body: 'id=' + id
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      location.reload();
+    } else {
+      alert(data.message);
+    }
+  } catch(e) { alert('操作失败'); }
+}
+
+async function rejectPost(id) {
+  const reason = prompt('拒绝理由（可选）:', '');
+  if (reason === null) return;
+  try {
+    const resp = await fetch('/api/reject', {
+      method: 'POST',
+      headers: {'Content-Type':'application/x-www-form-urlencoded'},
+      body: 'id=' + id + '&reason=' + encodeURIComponent(reason)
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      location.reload();
+    } else {
+      alert(data.message);
+    }
+  } catch(e) { alert('操作失败'); }
+}
+
+let qrPollTimer = null;
+function showQRModal() {
+  document.getElementById('qrModal').classList.add('show');
+  document.getElementById('qrStatus').textContent = '正在获取二维码...';
+  document.getElementById('qrImage').style.display = 'none';
+
+  // 请求二维码
+  const img = document.getElementById('qrImage');
+  img.src = '/api/qrcode?' + Date.now();
+  img.onload = function() {
+    img.style.display = 'block';
+    document.getElementById('qrStatus').textContent = '请用QQ扫描二维码';
+    startQRPoll();
+  };
+  img.onerror = function() {
+    document.getElementById('qrStatus').textContent = '❌ 获取二维码失败';
+  };
+}
+
+function closeQRModal() {
+  document.getElementById('qrModal').classList.remove('show');
+  if (qrPollTimer) { clearInterval(qrPollTimer); qrPollTimer = null; }
+}
+
+function startQRPoll() {
+  if (qrPollTimer) clearInterval(qrPollTimer);
+  qrPollTimer = setInterval(async function() {
+    try {
+      const resp = await fetch('/api/qrcode/status');
+      const data = await resp.json();
+      const el = document.getElementById('qrStatus');
+      switch(data.status) {
+        case 'success':
+          el.textContent = '✅ ' + data.message;
+          clearInterval(qrPollTimer);
+          setTimeout(() => location.reload(), 1500);
+          break;
+        case 'scanned':
+          el.textContent = '📱 已扫码，等待确认...';
+          break;
+        case 'expired':
+          el.textContent = '❌ ' + data.message;
+          clearInterval(qrPollTimer);
+          break;
+        case 'error':
+          el.textContent = '❌ ' + data.message;
+          clearInterval(qrPollTimer);
+          break;
+      }
+    } catch(e) {}
+  }, 2000);
+}
+</script>
+</body>
+</html>

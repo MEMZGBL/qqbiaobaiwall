@@ -36,6 +36,13 @@ func Get() string {
 	return fallback
 }
 
+// GetByType returns rkey for a specific type (e.g. 10/20).
+func GetByType(t int) string {
+	mu.RLock()
+	defer mu.RUnlock()
+	return byType[t]
+}
+
 // CandidatesForURL returns rkey candidates ordered by URL resource kind.
 func CandidatesForURL(rawURL string) []string {
 	rawURL = strings.TrimSpace(rawURL)
@@ -233,4 +240,3 @@ func extractToken(s string) string {
 	}
 	return ""
 }
-

@@ -1,7 +1,6 @@
 package web
 
 import (
-	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"embed"
@@ -9,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
-	"image"
 	"io"
 	"log"
 	"net/http"
@@ -597,6 +595,16 @@ func (s *Server) refreshInvalidRKeyInPosts(posts []*model.Post) {
 	if len(posts) == 0 {
 		return
 	}
+	rk := strings.TrimSpace(rkey.GetByType(10))
+	if rk == "" {
+		_ = rkey.RefreshFromBots()
+		rk = strings.TrimSpace(rkey.GetByType(10))
+	}
+	if rk == "" {
+		log.Printf("[Web] refresh rkey skipped: type=10 rkey not available")
+		return
+	}
+
 	for _, post := range posts {
 		if post == nil || len(post.Images) == 0 {
 			continue
@@ -607,11 +615,7 @@ func (s *Server) refreshInvalidRKeyInPosts(posts []*model.Post) {
 			if !hasRKey(raw) {
 				continue
 			}
-			if isImageURLValid(raw) {
-				continue
-			}
-
-			fixed, err := refreshOneURL(raw)
+			fixed, err := replaceRKey(raw, rk)
 			if err != nil {
 				log.Printf("[Web] refresh rkey failed: %v | url=%s", err, raw)
 				continue
@@ -628,34 +632,6 @@ func (s *Server) refreshInvalidRKeyInPosts(posts []*model.Post) {
 			}
 		}
 	}
-}
-
-func isImageURLValid(raw string) bool {
-	if raw == "" {
-		return false
-	}
-	req, err := http.NewRequest(http.MethodGet, raw, nil)
-	if err != nil {
-		return false
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return false
-	}
-
-	b, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil || len(b) == 0 {
-		return false
-	}
-	_, _, err = image.DecodeConfig(bytes.NewReader(b))
-	return err == nil
 }
 
 func hasRKey(raw string) bool {
@@ -676,39 +652,3 @@ func replaceRKey(raw, rk string) (string, error) {
 	u.RawQuery = q.Encode()
 	return u.String(), nil
 }
-
-func getRKeyFromCache() (string, error) {
-	v := strings.TrimSpace(rkey.Get())
-	if v == "" {
-		v = strings.TrimSpace(rkey.RefreshFromBots())
-	}
-	if v == "" {
-		return "", fmt.Errorf("rkey not available yet: no active bot context returned NcGetRKey; check ZeroBot WS connection")
-	}
-	return v, nil
-}
-
-func refreshOneURL(raw string) (string, error) {
-	try := func(candidates []string) (string, bool) {
-		for _, c := range candidates {
-			fixed, err := replaceRKey(raw, c)
-			if err != nil {
-				continue
-			}
-			if isImageURLValid(fixed) {
-				return fixed, true
-			}
-		}
-		return "", false
-	}
-
-	if fixed, ok := try(rkey.CandidatesForURL(raw)); ok {
-		return fixed, nil
-	}
-	_ = rkey.RefreshFromBots()
-	if fixed, ok := try(rkey.CandidatesForURL(raw)); ok {
-		return fixed, nil
-	}
-	return "", fmt.Errorf("no valid rkey candidate matched this resource type")
-}
-

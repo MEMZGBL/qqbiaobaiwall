@@ -18,6 +18,8 @@ github.com/google/pprof v0.0.0-20250317173921-a4b03ec1a45e h1:ijClszYn+mADRFY17k
 github.com/google/pprof v0.0.0-20250317173921-a4b03ec1a45e/go.mod h1:boTsfXsheKC2y+lKOCMpSfarhxDeIzfZG1jqGcPl3cA=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
+github.com/guohuiyuan/qzone-go v1.0.0 h1:+DfeXNdDlc7EMd1PgLW3rknD5VyWUaeSjHTUPBwHm2Y=
+github.com/guohuiyuan/qzone-go v1.0.0/go.mod h1:VO9DSjdfxrRg7QfLYgj7El0xmSgUhcwlLQev4LmsZMU=
 github.com/mattn/go-isatty v0.0.20 h1:xfD0iDuEKnDkl03q4limB+vH+GxLEtL/jb4xVJSWWEY=
 github.com/mattn/go-isatty v0.0.20/go.mod h1:W+V8PltTTMOvKvAeJH7IuucS94S2C6jfK/D7dTCTo3Y=
 github.com/ncruces/go-strftime v0.1.9 h1:bY0MQC28UADQmHmaF5dgpLmImcShSi2kHU9XLdhx/f4=
@@ -36,8 +38,6 @@ github.com/tidwall/match v1.1.1 h1:+Ho715JplO36QYgwN9PGYNhgZvoUSc9X2c80KVTi+GA=
 github.com/tidwall/match v1.1.1/go.mod h1:eRSPERbgtNPcGhD8UCthc6PmLEQXEWd3PRB5JTxsfmM=
 github.com/tidwall/pretty v1.2.0 h1:RWIZEg2iJ8/g6fDDYzMpobmaoGh5OLl4AXtGUGPcqCs=
 github.com/tidwall/pretty v1.2.0/go.mod h1:ITEVvHYasfjBbM0u2Pg8T2nJnzm8xPwvNhhsoaGGjNU=
-github.com/wdvxdr1123/ZeroBot v1.8.3-0.20260117102541-393033a35adb h1:pwmyrnnMzb0WygAwUgXoZckzJkusK4WSaXxXqsIJYmU=
-github.com/wdvxdr1123/ZeroBot v1.8.3-0.20260117102541-393033a35adb/go.mod h1:kCLja2sXXgbBTsEOyBNCuT4z9tI+URQ2y0q/GGXprzU=
 github.com/wdvxdr1123/ZeroBot v1.8.3-0.20260211080057-bb01972ba5f9 h1:Aixev7FZsHXLMvReceyRGpkr+2XRx10X3qWdhrNBKH4=
 github.com/wdvxdr1123/ZeroBot v1.8.3-0.20260211080057-bb01972ba5f9/go.mod h1:kCLja2sXXgbBTsEOyBNCuT4z9tI+URQ2y0q/GGXprzU=
 golang.org/x/exp v0.0.0-20250408133849-7e4ce0ab07d0 h1:R84qjqJb5nVJMxqWYb3np9L5ZsaDtB+a39EqjV0JSUM=

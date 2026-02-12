@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" href="/icon.png">
 <title>管理后台 - 表白墙</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -222,7 +223,7 @@
 
   <!-- Cookie 状态 -->
   <div class="cookie-bar">
-    <div class="cookie-status">
+    <div class="cookie-status" id="cookieStatusText">
       {{if .CookieValid}}
         <span class="dot green"></span>QQ空间已登录 (UIN: {{.QzoneUIN}})
       {{else}}
@@ -350,6 +351,22 @@ async function rejectPost(id) {
 
 let qrPollTimer = null;
 
+async function refreshCookieStatus() {
+  const el = document.getElementById('cookieStatusText');
+  if (!el) return;
+  try {
+    const resp = await fetch('/api/qzone/status', { cache: 'no-store' });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (!data || !data.ok) return;
+    if (data.cookie_valid) {
+      el.innerHTML = '<span class="dot green"></span>QQ空间已登录 (UIN: ' + data.uin + ')';
+    } else {
+      el.innerHTML = '<span class="dot red"></span>QQ空间未登录';
+    }
+  } catch (e) {}
+}
+
 function handleImageError(img) {
   const wrapper = img.closest('.img-wrap');
   if (wrapper) {
@@ -417,6 +434,8 @@ async function batchReject() {
 }
 
 updateBatchSelection();
+refreshCookieStatus();
+setInterval(refreshCookieStatus, 2000);
 
 function showQRModal() {
   document.getElementById('qrModal').classList.add('show');

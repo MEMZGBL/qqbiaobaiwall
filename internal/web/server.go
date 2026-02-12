@@ -10,10 +10,13 @@ import (
 	"html/template"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -123,6 +126,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/qrcode", s.handleAPIQRCode)
 	mux.HandleFunc("/api/qrcode/status", s.handleAPIQRStatus)
 	mux.HandleFunc("/api/health", s.handleAPIHealth)
+	mux.HandleFunc("/api/qzone/status", s.handleAPIQzoneStatus)
 
 	// 静态资源
 	mux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir(s.uploadDir))))
@@ -133,7 +137,12 @@ func (s *Server) Start() error {
 	}
 
 	go func() {
-		log.Printf("[Web] 监听 %s", s.cfg.Addr)
+		urlStr := localWebURL(s.cfg.Addr)
+		log.Printf("[Web] 监听 %s (%s)", s.cfg.Addr, urlStr)
+		go func() {
+			time.Sleep(500 * time.Millisecond)
+			openBrowser(urlStr)
+		}()
 		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Printf("[Web] 服务异常: %v", err)
 		}
@@ -639,6 +648,26 @@ func (s *Server) handleAPIHealth(w http.ResponseWriter, r *http.Request) {
 	jsonResp(w, 200, true, "ok")
 }
 
+func (s *Server) handleAPIQzoneStatus(w http.ResponseWriter, r *http.Request) {
+	account := s.currentAccount(r)
+	if account == nil || !account.IsAdmin() {
+		jsonResp(w, http.StatusForbidden, false, "forbidden")
+		return
+	}
+
+	uin := int64(0)
+	if s.qzClient != nil {
+		uin = s.qzClient.UIN()
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":           true,
+		"cookie_valid": uin > 0,
+		"uin":          uin,
+	})
+}
+
 func (s *Server) handleIcon(w http.ResponseWriter, r *http.Request) {
 	icon, err := templateFS.ReadFile("templates/icon.png")
 	if err != nil {
@@ -794,4 +823,36 @@ func replaceRKey(raw, rk string) (string, error) {
 	q.Set("rkey", rk)
 	u.RawQuery = q.Encode()
 	return u.String(), nil
+}
+
+func localWebURL(addr string) string {
+	if _, port, err := net.SplitHostPort(addr); err == nil && port != "" {
+		return "http://localhost:" + port
+	}
+	if strings.HasPrefix(addr, ":") {
+		port := strings.TrimPrefix(addr, ":")
+		if port != "" {
+			return "http://localhost:" + port
+		}
+	}
+	if _, err := strconv.Atoi(addr); err == nil {
+		return "http://localhost:" + addr
+	}
+	return "http://localhost:8080"
+}
+
+func openBrowser(url string) {
+	var cmd string
+	var args []string
+
+	switch runtime.GOOS {
+	case "windows":
+		cmd, args = "cmd", []string{"/c", "start", ""}
+	case "darwin":
+		cmd = "open"
+	default:
+		cmd = "xdg-open"
+	}
+	args = append(args, url)
+	_ = exec.Command(cmd, args...).Start()
 }

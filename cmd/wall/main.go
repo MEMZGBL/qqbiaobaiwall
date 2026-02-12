@@ -1,4 +1,4 @@
-package main
+﻿package main
 
 import (
 	"log"
@@ -18,7 +18,6 @@ import (
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-	// 加载配置
 	cfgPath := "config.yaml"
 	for i := 1; i < len(os.Args); i++ {
 		switch os.Args[i] {
@@ -31,89 +30,102 @@ func main() {
 			cfgPath = os.Args[i]
 		}
 	}
+
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
-		log.Fatalf("加载配置失败: %v", err)
+		log.Fatalf("load config failed: %v", err)
 	}
-	log.Println("[Main] 配置加载成功")
+	log.Println("[Main] config loaded")
 
-	// 初始化 SQLite 存储
 	st, err := store.New(cfg.Database.Path)
 	if err != nil {
-		log.Fatalf("初始化数据库失败: %v", err)
+		log.Fatalf("init sqlite failed: %v", err)
 	}
 	defer st.Close()
-	log.Println("[Main] SQLite 初始化成功")
+	log.Println("[Main] sqlite ready")
 
-	// 初始化敏感词
 	censorWords := store.LoadCensorWords(cfg.Censor.Words, cfg.Censor.WordsFile)
-	log.Printf("[Main] 加载了 %d 个敏感词", len(censorWords))
+	log.Printf("[Main] loaded censor words: %d", len(censorWords))
 
-	// 初始化截图渲染器
 	renderer := render.NewRenderer()
 	if renderer.Available() {
-		log.Println("[Main] 截图渲染器已启用")
+		log.Println("[Main] renderer enabled")
 	} else {
-		log.Println("[Main] 截图渲染器未启用")
+		log.Println("[Main] renderer disabled")
 	}
 
-	// 启动 QQ Bot（内部启动 ZeroBot，需要先启动才能用 GetCookies）
-	// 先用 nil client 占位，后续替换
 	qqBot := source.NewQQBot(cfg.Bot, cfg.Wall, cfg.Qzone, st, renderer, nil, censorWords)
 	if err := qqBot.Start(); err != nil {
-		log.Fatalf("启动QQ Bot失败: %v", err)
+		log.Fatalf("start qq bot failed: %v", err)
 	}
-	log.Println("[Main] QQ Bot 已启动")
+	log.Println("[Main] qq bot started")
 
-	// 尝试获取初始 Cookie
 	initCookie, err := task.TryGetCookie(cfg.Qzone)
 	if err != nil {
-		log.Printf("[Main] ⚠️  Cookie初始化未成功: %v", err)
-		log.Println("[Main] 请通过 /扫码 或 /刷新cookie 命令登录, 或在Web管理界面扫码")
-		initCookie = "uin=o0;skey=@placeholder;p_skey=placeholder" // 占位, 后续刷新
+		log.Printf("[Main] initial cookie unavailable: %v", err)
+		log.Println("[Main] use /扫码 or web admin QR login to refresh cookie")
+		initCookie = "uin=o0;skey=@placeholder;p_skey=placeholder"
 	}
 
-	// 创建 QQ空间 客户端，使用 WithOnSessionExpired 自动刷新
 	qzClient, err := qzone.NewClient(initCookie,
 		qzone.WithTimeout(cfg.Qzone.Timeout),
 		qzone.WithMaxRetry(cfg.Qzone.MaxRetry),
-		qzone.WithOnSessionExpired(task.RefreshCookie(cfg.Qzone, cfg.Bot)),
+		qzone.WithOnSessionExpired(task.RefreshCookie(cfg.Bot)),
 	)
 	if err != nil {
-		log.Printf("[Main] QQ空间客户端创建警告: %v", err)
-	}
-	log.Println("[Main] QQ空间客户端已创建(带自动刷新回调)")
+		log.Printf("[Main] qzone client create failed: %v", err)
 
-	// 回填 client 到 QQBot
+		refreshFn := task.RefreshCookie(cfg.Bot)
+		newCookie, refreshErr := refreshFn()
+		if refreshErr != nil {
+			log.Fatalf("[Main] qzone client init failed and cookie refresh failed: %v", refreshErr)
+		}
+
+		qzClient, err = qzone.NewClient(newCookie,
+			qzone.WithTimeout(cfg.Qzone.Timeout),
+			qzone.WithMaxRetry(cfg.Qzone.MaxRetry),
+			qzone.WithOnSessionExpired(task.RefreshCookie(cfg.Bot)),
+		)
+		if err != nil {
+			log.Fatalf("[Main] qzone client recreate failed after cookie refresh: %v", err)
+		}
+	}
+
+	if qzClient == nil {
+		log.Fatal("[Main] qzone client is nil after initialization")
+	}
+	log.Println("[Main] qzone client created")
+
+	if err := task.EnsureCookieValidOnStartup(cfg.Qzone, cfg.Bot, qzClient); err != nil {
+		log.Printf("[Main] startup cookie validation failed: %v", err)
+	}
+
 	qqBot.SetClient(qzClient)
 
-	// 启动 Worker
 	worker := task.NewWorker(cfg.Worker, cfg.Wall, qzClient, st, renderer)
 	worker.Start()
 	defer worker.Stop()
 
-	// 启动 KeepAlive
 	keepAlive := task.NewKeepAlive(cfg.Qzone, cfg.Bot, qzClient)
 	keepAlive.Start()
 	defer keepAlive.Stop()
 
-	// 启动 Web 服务器
 	if cfg.Web.Enable {
 		webServer := web.NewServer(cfg.Web, cfg.Wall, st, qzClient)
 		go func() {
 			if err := webServer.Start(); err != nil {
-				log.Printf("[Main] Web服务器停止: %v", err)
+				log.Printf("[Main] web server stopped: %v", err)
 			}
 		}()
 		defer webServer.Stop()
-		log.Printf("[Main] Web 服务器已启动: %s", cfg.Web.Addr)
+		log.Printf("[Main] web server started: %s", cfg.Web.Addr)
 	}
 
-	log.Println("[Main] ========== 表白墙系统启动完成 ==========")
+	log.Println("[Main] system started")
 
-	// 等待退出信号
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	s := <-sig
-	log.Printf("[Main] 收到信号 %v, 正在关闭...", s)
+	log.Printf("[Main] got signal %v, shutting down...", s)
 }
+

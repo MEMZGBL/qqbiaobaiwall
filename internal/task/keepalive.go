@@ -1,10 +1,12 @@
-package task
+﻿package task
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"image"
 	"log"
-	"os"
+	"strings"
 	"time"
 
 	qzone "github.com/guohuiyuan/qzone-go"
@@ -14,7 +16,7 @@ import (
 	"github.com/wdvxdr1123/ZeroBot/message"
 )
 
-// KeepAlive 定期检测QQ空间Cookie有效性并自动刷新
+// KeepAlive 定期校验 QQ 空间 Cookie 有效性并自动刷新。
 type KeepAlive struct {
 	qzoneCfg config.QzoneConfig
 	botCfg   config.BotConfig
@@ -23,32 +25,21 @@ type KeepAlive struct {
 	cancel   context.CancelFunc
 }
 
-// NewKeepAlive 创建keepalive实例
 func NewKeepAlive(qzoneCfg config.QzoneConfig, botCfg config.BotConfig, client *qzone.Client) *KeepAlive {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &KeepAlive{
-		qzoneCfg: qzoneCfg,
-		botCfg:   botCfg,
-		client:   client,
-		ctx:      ctx,
-		cancel:   cancel,
-	}
+	return &KeepAlive{qzoneCfg: qzoneCfg, botCfg: botCfg, client: client, ctx: ctx, cancel: cancel}
 }
 
-// Start 启动保活
 func (k *KeepAlive) Start() {
 	if k.qzoneCfg.KeepAlive <= 0 {
-		log.Println("[KeepAlive] 已禁用 (keep_alive <= 0)")
+		log.Println("[KeepAlive] disabled (keep_alive <= 0)")
 		return
 	}
 	go k.run()
-	log.Printf("[KeepAlive] 启动, 检测间隔=%v", k.qzoneCfg.KeepAlive)
+	log.Printf("[KeepAlive] started, interval=%v", k.qzoneCfg.KeepAlive)
 }
 
-// Stop 停止保活
-func (k *KeepAlive) Stop() {
-	k.cancel()
-}
+func (k *KeepAlive) Stop() { k.cancel() }
 
 func (k *KeepAlive) run() {
 	ticker := time.NewTicker(k.qzoneCfg.KeepAlive)
@@ -57,7 +48,7 @@ func (k *KeepAlive) run() {
 	for {
 		select {
 		case <-k.ctx.Done():
-			log.Println("[KeepAlive] 已停止")
+			log.Println("[KeepAlive] stopped")
 			return
 		case <-ticker.C:
 			k.check()
@@ -66,49 +57,89 @@ func (k *KeepAlive) run() {
 }
 
 func (k *KeepAlive) check() {
-	log.Println("[KeepAlive] 检测Cookie有效性...")
-
-	// 用 GetMyFeeds 探测会话是否有效
-	_, err := k.client.GetMyFeeds(k.ctx, &qzone.GetFeedsOption{Num: 1})
-	if err == nil {
-		log.Println("[KeepAlive] Cookie有效")
+	log.Println("[KeepAlive] validating cookie via GetUserInfo...")
+	if _, err := validateCookieWithUserInfo(k.ctx, k.client); err == nil {
+		log.Println("[KeepAlive] cookie valid")
 		return
 	}
-	log.Printf("[KeepAlive] Cookie可能已过期: %v", err)
 
-	// 尝试通过 ZeroBot 的 GetCookies 刷新
+	log.Println("[KeepAlive] cookie invalid, trying refresh from bot")
 	if k.tryRefreshFromBot() {
 		return
 	}
 
-	// 通知管理群：需要手动扫码
-	k.notifyAdmin("⚠️ QQ空间Cookie已过期，请使用 /扫码 或 /刷新cookie 重新登录")
+	k.notifyAdmin("⚠️ QQ空间 Cookie 已过期，请使用 /扫码 或 /刷新cookie 重新登录")
 }
 
-// tryRefreshFromBot 尝试从ZeroBot获取Cookie
 func (k *KeepAlive) tryRefreshFromBot() bool {
 	var refreshed bool
 	zero.RangeBot(func(id int64, ctx *zero.Ctx) bool {
-		// 同步 rkey 缓存，避免 web/worker 在无命令触发时拿不到 rkey。
 		_, _ = rkey.UpdateFromRaw(ctx.NcGetRKey().Raw)
 
 		cookie := ctx.GetCookies("qzone.qq.com")
 		if cookie == "" {
-			return true // 继续遍历
-		}
-		if err := k.client.UpdateCookie(cookie); err != nil {
-			log.Printf("[KeepAlive] 从Bot(%d)获取的Cookie更新失败: %v", id, err)
 			return true
 		}
-		log.Printf("[KeepAlive] 从Bot(%d)的GetCookies刷新成功, UIN=%d", id, k.client.UIN())
-		k.saveCookie(cookie)
+		if err := k.client.UpdateCookie(cookie); err != nil {
+			log.Printf("[KeepAlive] refresh from bot(%d) failed: %v", id, err)
+			return true
+		}
+		log.Printf("[KeepAlive] refreshed from bot(%d), UIN=%d", id, k.client.UIN())
 		refreshed = true
-		return false // 成功，停止遍历
+		return false
 	})
 	return refreshed
 }
 
-// notifyAdmin 向管理群发送通知
+// EnsureCookieValidOnStartup validates cookie once during startup and
+// attempts a single refresh flow when invalid.
+func EnsureCookieValidOnStartup(_ config.QzoneConfig, botCfg config.BotConfig, client *qzone.Client) error {
+	if client == nil {
+		return fmt.Errorf("nil qzone client")
+	}
+
+	log.Println("[Startup] validating cookie via GetUserInfo...")
+	info, err := validateCookieWithUserInfo(context.Background(), client)
+	if err == nil {
+		name := strings.TrimSpace(info.Nickname)
+		if name == "" {
+			name = "(empty)"
+		}
+		log.Printf("[Startup] cookie valid, uin=%d, nickname=%s", info.UIN, name)
+		return nil
+	}
+	log.Printf("[Startup] cookie invalid: %v", err)
+
+	// qzone.Client may already have refreshed via OnSessionExpired; re-check once.
+	time.Sleep(500 * time.Millisecond)
+	if info, recheckErr := validateCookieWithUserInfo(context.Background(), client); recheckErr == nil {
+		log.Printf("[Startup] cookie became valid after internal refresh, uin=%d, nickname=%s", info.UIN, strings.TrimSpace(info.Nickname))
+		return nil
+	}
+
+	refreshFn := RefreshCookie(botCfg)
+	newCookie, refreshErr := refreshFn()
+	if refreshErr != nil {
+		return fmt.Errorf("startup refresh failed: %w", refreshErr)
+	}
+	if updateErr := client.UpdateCookie(newCookie); updateErr != nil {
+		return fmt.Errorf("startup update cookie failed: %w", updateErr)
+	}
+
+	info, err = validateCookieWithUserInfo(context.Background(), client)
+	if err != nil {
+		return fmt.Errorf("cookie still invalid after refresh: %w", err)
+	}
+	log.Printf("[Startup] cookie refresh success, uin=%d, nickname=%s", info.UIN, strings.TrimSpace(info.Nickname))
+	return nil
+}
+
+func validateCookieWithUserInfo(parent context.Context, client *qzone.Client) (*qzone.UserInfo, error) {
+	ctx, cancel := context.WithTimeout(parent, 15*time.Second)
+	defer cancel()
+	return client.GetMyInfo(ctx)
+}
+
 func (k *KeepAlive) notifyAdmin(text string) {
 	if k.botCfg.ManageGroup <= 0 {
 		return
@@ -119,128 +150,124 @@ func (k *KeepAlive) notifyAdmin(text string) {
 	})
 }
 
-// saveCookie 保存Cookie到文件
-func (k *KeepAlive) saveCookie(cookie string) {
-	SaveCookie(k.qzoneCfg, cookie)
-}
-
-// TryGetCookie 启动时尝试各种方式获取Cookie，返回Cookie字符串
-// 优先级: 配置文件Cookie > Cookie文件 > ZeroBot GetCookies > 自动登录(QR)
-func TryGetCookie(qzoneCfg config.QzoneConfig) (string, error) {
-	// 1. 配置中直接设置的Cookie
-	if qzoneCfg.Cookie != "" {
-		log.Println("[Init] 使用配置中的Cookie")
-		return qzoneCfg.Cookie, nil
-	}
-
-	// 2. Cookie文件
-	if qzoneCfg.CookieFile != "" {
-		if data, err := os.ReadFile(qzoneCfg.CookieFile); err == nil && len(data) > 0 {
-			log.Printf("[Init] 从Cookie文件加载: %s", qzoneCfg.CookieFile)
-			return string(data), nil
+// TryGetCookie sources cookie from two methods in fixed order:
+// 1) ZeroBot GetCookies
+// 2) QR login
+func TryGetCookie(_ config.QzoneConfig) (string, error) {
+	// Give bot connections a short warm-up window before falling back to QR.
+	const maxAttempts = 6
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		log.Printf("[Init] GetCookies attempt %d/%d", attempt, maxAttempts)
+		cookie, ok := tryGetCookieFromBots("[Init]")
+		if ok {
+			return cookie, nil
+		}
+		if attempt < maxAttempts {
+			time.Sleep(time.Second)
 		}
 	}
-
-	// 3. 通过 ZeroBot 的 GetCookies (需要Bot已连接)
-	var cookie string
-	zero.RangeBot(func(id int64, ctx *zero.Ctx) bool {
-		c := ctx.GetCookies("qzone.qq.com")
-		if c == "" {
-			return true
-		}
-		log.Printf("[Init] 从Bot(%d) GetCookies获取成功", id)
-		cookie = c
-		return false
-	})
-	if cookie != "" {
-		SaveCookie(qzoneCfg, cookie)
-		return cookie, nil
-	}
-
-	// 4. 自动QR登录 (headless, 输出到终端)
-	if qzoneCfg.AutoLogin {
-		return tryQRLogin(qzoneCfg)
-	}
-
-	return "", fmt.Errorf("未能获取有效Cookie, 请通过 /扫码 命令或Web管理页面扫码登录")
+	log.Println("[Init] all bot GetCookies attempts failed, fallback to QR")
+	return tryQRLogin()
 }
 
-// RefreshCookie 尝试通过ZeroBot刷新Cookie，用于 WithOnSessionExpired 回调
-func RefreshCookie(qzoneCfg config.QzoneConfig, botCfg config.BotConfig) func() (string, error) {
+// RefreshCookie is used by qzone.WithOnSessionExpired callback.
+func RefreshCookie(botCfg config.BotConfig) func() (string, error) {
 	return func() (string, error) {
-		log.Println("[SessionExpired] Cookie过期，尝试自动刷新...")
-		// 优先从 ZeroBot GetCookies 获取
-		var cookie string
-		zero.RangeBot(func(id int64, ctx *zero.Ctx) bool {
-			c := ctx.GetCookies("qzone.qq.com")
-			if c == "" {
-				return true
-			}
-			log.Printf("[SessionExpired] 从Bot(%d) GetCookies刷新成功", id)
-			cookie = c
-			return false
-		})
-		if cookie != "" {
-			SaveCookie(qzoneCfg, cookie)
+		log.Println("[SessionExpired] cookie expired, trying bot GetCookies...")
+		cookie, ok := tryGetCookieFromBots("[SessionExpired]")
+		if ok {
 			return cookie, nil
 		}
 
-		// 通知管理群需要扫码
 		if botCfg.ManageGroup > 0 {
 			zero.RangeBot(func(id int64, ctx *zero.Ctx) bool {
-				ctx.SendGroupMessage(botCfg.ManageGroup, message.Text("⚠️ QQ空间Cookie已过期，GetCookies刷新失败，请使用 /扫码 或 /刷新cookie 重新登录"))
+				ctx.SendGroupMessage(botCfg.ManageGroup, message.Text("⚠️ QQ空间 Cookie 过期，GetCookies 刷新失败，请使用 /扫码 重新登录"))
 				return false
 			})
 		}
-		return "", fmt.Errorf("Cookie刷新失败，请手动扫码")
+		return "", fmt.Errorf("cookie refresh failed; please scan QR manually")
 	}
 }
 
-// SaveCookie 保存Cookie到文件
-func SaveCookie(qzoneCfg config.QzoneConfig, cookie string) {
-	if qzoneCfg.CookieFile == "" {
-		return
+func tryGetCookieFromBots(prefix string) (string, bool) {
+	seenBots := 0
+	var cookie string
+	zero.RangeBot(func(id int64, ctx *zero.Ctx) bool {
+		seenBots++
+		c := ctx.GetCookies("qzone.qq.com")
+		if c == "" {
+			log.Printf("%s bot(%d) GetCookies empty", prefix, id)
+			return true
+		}
+		log.Printf("%s bot(%d) GetCookies=%s", prefix, id, c)
+		cookie = c
+		return false
+	})
+	if seenBots == 0 {
+		log.Printf("%s no bot context available for GetCookies", prefix)
 	}
-	if err := os.WriteFile(qzoneCfg.CookieFile, []byte(cookie), 0600); err != nil {
-		log.Printf("[Cookie] 保存失败: %v", err)
-	} else {
-		log.Printf("[Cookie] 已保存到 %s", qzoneCfg.CookieFile)
-	}
+	return cookie, cookie != ""
 }
 
-// tryQRLogin 在终端中进行QR码登录，返回Cookie字符串
-func tryQRLogin(qzoneCfg config.QzoneConfig) (string, error) {
-	log.Println("[Init] 尝试QR码登录 (请在管理群发送 /扫码)...")
+func tryQRLogin() (string, error) {
+	log.Println("[Init] trying QR login...")
 
 	qr, err := qzone.GetQRCode()
 	if err != nil {
-		return "", fmt.Errorf("获取二维码失败: %w", err)
+		return "", fmt.Errorf("get qrcode failed: %w", err)
 	}
+	printQRCodeInTerminal(qr.Image)
 
-	// 保存QR码到文件供查看
-	qrFile := "qrcode.png"
-	if err := os.WriteFile(qrFile, qr.Image, 0644); err == nil {
-		log.Printf("[Init] 二维码已保存到 %s, 请用QQ扫描", qrFile)
-	}
-
-	// 轮询等待扫码
 	for i := 0; i < 120; i++ {
 		time.Sleep(2 * time.Second)
 		state, cookie, err := qzone.PollQRLogin(qr)
 		if err != nil {
-			return "", fmt.Errorf("登录轮询失败: %w", err)
+			return "", fmt.Errorf("poll qrcode failed: %w", err)
 		}
 		switch state {
 		case qzone.LoginSuccess:
-			log.Println("[Init] QR登录成功")
-			SaveCookie(qzoneCfg, cookie)
-			_ = os.Remove(qrFile)
+			log.Println("[Init] QR login success")
 			return cookie, nil
 		case qzone.LoginExpired:
-			return "", fmt.Errorf("二维码已过期")
+			return "", fmt.Errorf("qrcode expired")
 		case qzone.LoginScanned:
-			log.Println("[Init] 已扫码，等待确认...")
+			log.Println("[Init] QR scanned, waiting confirm...")
 		}
 	}
-	return "", fmt.Errorf("登录超时")
+	return "", fmt.Errorf("qrcode login timeout")
+}
+
+func printQRCodeInTerminal(pngData []byte) {
+	img, _, err := image.Decode(bytes.NewReader(pngData))
+	if err != nil {
+		log.Printf("[Init] print qr in terminal failed: %v", err)
+		return
+	}
+
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w == 0 || h == 0 {
+		return
+	}
+
+	// Add a white border for easier scan.
+	log.Println("[Init] scan QR in terminal:")
+	border := strings.Repeat("  ", w+4)
+	log.Println(border)
+	for y := 0; y < h; y++ {
+		var sb strings.Builder
+		sb.WriteString("    ")
+		for x := 0; x < w; x++ {
+			r, g, b, _ := img.At(x+b.Min.X, y+b.Min.Y).RGBA()
+			gray := (r + g + b) / 3
+			if gray < 0x8000 {
+				sb.WriteString("██")
+			} else {
+				sb.WriteString("  ")
+			}
+		}
+		sb.WriteString("    ")
+		log.Println(sb.String())
+	}
+	log.Println(border)
 }

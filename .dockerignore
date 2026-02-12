@@ -1,0 +1,51 @@
+# Based on .gitignore
+config.yaml
+cookie.txt
+uploads/
+data.db*
+*.exe
+*.jpg
+qrcode.png
+config.yaml.bak
+wall*
+
+# Version control
+.git/
+.gitignore
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.tmp
+*.bak
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Build artifacts
+*.syso
+winres/gen/
+
+# Test files
+*_test.go
+
+# Temporary files
+*.tmp
+*.swp
+
+# Docker files (not needed in image)
+Dockerfile
+.dockerignore
+.goreleaser.yml
+
+# GitHub workflows
+.github/
+
+# Scripts and batch files
+run.bat
+run.sh

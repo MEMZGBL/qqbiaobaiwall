@@ -25,9 +25,6 @@
   - 启动后异步尝试 `GetCookies`（优先）
   - 失败再回退到扫码登录
   - 会话过期时自动触发刷新回调
-- rkey 管理
-  - 从 Bot 上下文拉取 `NcGetRKey`
-  - 上传/发布前自动检查并修复失效图片链接
 - 安全与数据
   - SQLite 持久化（WAL）
   - Web 管理后台账号+会话
@@ -44,10 +41,11 @@ qzonewall-go/
 ├─ internal/task/keepalive.go      # Cookie 校验/刷新/扫码逻辑
 ├─ internal/web/server.go          # Web 后台与投稿页
 ├─ internal/render/screenshot.go   # 投稿截图渲染
-├─ internal/rkey/cache.go          # rkey 缓存与刷新
 ├─ internal/store/sqlite.go        # SQLite 存储
 ├─ config.yaml                     # 配置文件
 ├─ run.bat / run.sh                # 启动脚本
+├─ Dockerfile                      # Docker 构建文件
+├─ .dockerignore                   # Docker 忽略文件
 └─ winres/                         # Windows 资源文件
 ```
 
@@ -81,6 +79,49 @@ chmod +x run.sh
 go mod tidy
 go generate ./...
 go run ./cmd/wall
+```
+
+## Docker 部署
+
+项目提供了 Docker 支持，可以快速部署到容器环境中。
+
+### 构建镜像
+
+```bash
+docker build -t qzonewall-go .
+```
+
+### 运行容器
+
+基本运行（使用内置默认配置）：
+
+```bash
+docker run -p 8081:8081 qzonewall-go
+```
+
+自定义配置（推荐）：
+
+```bash
+# 复制并修改配置文件
+cp cmd/wall/example_config.yaml my_config.yaml
+# 编辑 my_config.yaml 进行自定义配置
+
+# 运行容器并挂载配置
+docker run -p 8081:8081 -v //$(pwd)/my_config.yaml:/home/appuser/config.yaml qzonewall-go
+```
+
+### Docker 环境说明
+
+- **端口**: 容器内部使用 8081 端口
+- **配置**: 容器内包含默认配置，可以通过挂载覆盖
+- **数据**: SQLite 数据库文件会自动在容器内创建
+- **持久化**: 如需持久化数据，可以额外挂载数据库文件：
+
+```bash
+docker run -p 8081:8081 \
+  -v $(pwd)/my_config.yaml:/home/appuser/config.yaml \
+  -v $(pwd)/data.db:/home/appuser/data.db \
+  qzonewall-go
 ```
 
 ## 配置说明（config.yaml）
@@ -212,19 +253,15 @@ go generate ./winres
 
 ### 1) `GetCookies` 没有拿到值
 
-先看 Bot 是否真的连上 NapCat；如果没有活跃 Bot 上下文，`GetCookies` 和 `NcGetRKey` 都会拿不到。
+先看 Bot 是否真的连上 NapCat；如果没有活跃 Bot 上下文，`GetCookies` 会拿不到。
 
-### 2) 日志提示有 rkey 但图片仍失效
-
-先确认链接中的资源类型（type=10/type=20）是否匹配。项目里会按候选 rkey 逐个尝试并验证可访问性。
-
-### 3) 发布失败 `qzone api: code=-1`
+### 2) 发布失败 `qzone api: code=-1`
 
 这通常和 Cookie 失效、rkey 失效、图片源不可访问有关。建议先做三件事：
 
 1. 重新走一次扫码登录
 2. 检查图片链接是否可直连
-3. 打开日志看 Worker 的重试与 rkey 刷新结果
+3. 打开日志看 Worker 的重试结果
 
 ## 说明
 

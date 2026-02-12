@@ -6,3 +6,4 @@ data.db*
 *.jpg
 qrcode.png
 config.yaml.bak
+wall*

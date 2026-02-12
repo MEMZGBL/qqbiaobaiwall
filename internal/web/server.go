@@ -314,9 +314,9 @@ func (s *Server) handleAPISubmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	text := r.FormValue("text")
-	name := r.FormValue("name")
+	name := r.FormValue("uin")
+	uin, _ := strconv.ParseInt(name, 10, 64)
 	anon := r.FormValue("anon") == "on" || r.FormValue("anon") == "true"
-
 	if name == "" && account != nil {
 		name = account.Username
 	}
@@ -358,6 +358,7 @@ func (s *Server) handleAPISubmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	post := &model.Post{
+		UIN: uin,
 		Name:       name,
 		Text:       text,
 		Images:     images,

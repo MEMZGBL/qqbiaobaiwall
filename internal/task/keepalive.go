@@ -4,14 +4,17 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"image"
+	_ "image/png" // 必须导入 png 驱动，否则 image.Decode 会失败
 	"log"
+	"os"
 	"strings"
 	"time"
 
 	qzone "github.com/guohuiyuan/qzone-go"
 	"github.com/guohuiyuan/qzonewall-go/internal/config"
 	"github.com/guohuiyuan/qzonewall-go/internal/rkey"
+	"github.com/mdp/qrterminal/v3"
+	"github.com/tuotoo/qrcode"
 	zero "github.com/wdvxdr1123/ZeroBot"
 	"github.com/wdvxdr1123/ZeroBot/message"
 )
@@ -242,6 +245,7 @@ func tryQRLogin() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("get qrcode failed: %w", err)
 	}
+	// 将字节流图片转换为终端二维码显示
 	printQRCodeInTerminal(qr.Image)
 
 	for i := 0; i < 120; i++ {
@@ -263,37 +267,27 @@ func tryQRLogin() (string, error) {
 	return "", fmt.Errorf("qrcode login timeout")
 }
 
+// printQRCodeInTerminal 使用 qrterminal 库在终端打印完美的二维码
 func printQRCodeInTerminal(pngData []byte) {
-	img, _, err := image.Decode(bytes.NewReader(pngData))
+	// 修正：qrcode.Decode 需要 io.Reader，直接传入 bytes.NewReader(pngData)
+	// 注意：必须保留 import _ "image/png" 以支持 PNG 解码，但不需要 import "image"
+	qrMatrix, err := qrcode.Decode(bytes.NewReader(pngData))
 	if err != nil {
-		log.Printf("[Init] print qr in terminal failed: %v", err)
+		log.Printf("[Init] QR print failed (decode content error): %v", err)
 		return
 	}
 
-	b := img.Bounds()
-	w, h := b.Dx(), b.Dy()
-	if w == 0 || h == 0 {
-		return
+	// 使用 qrterminal 库输出
+	config := qrterminal.Config{
+		Level:     qrterminal.L,
+		Writer:    os.Stdout,
+		BlackChar: qrterminal.BLACK,
+		WhiteChar: qrterminal.WHITE,
+		QuietZone: 1,
 	}
 
-	// Add a white border for easier scan.
 	log.Println("[Init] scan QR in terminal:")
-	border := strings.Repeat("  ", w+4)
-	log.Println(border)
-	for y := 0; y < h; y++ {
-		var sb strings.Builder
-		sb.WriteString("    ")
-		for x := 0; x < w; x++ {
-			r, g, b, _ := img.At(x+b.Min.X, y+b.Min.Y).RGBA()
-			gray := (r + g + b) / 3
-			if gray < 0x8000 {
-				sb.WriteString("██")
-			} else {
-				sb.WriteString("  ")
-			}
-		}
-		sb.WriteString("    ")
-		log.Println(sb.String())
-	}
-	log.Println(border)
+	log.Println(strings.Repeat("-", 20))
+	qrterminal.GenerateWithConfig(qrMatrix.Content, config)
+	log.Println(strings.Repeat("-", 20))
 }

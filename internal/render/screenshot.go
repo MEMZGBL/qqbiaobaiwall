@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
-	"image/draw" // 标准库：提供 draw.Over, draw.Src, draw.Draw
+	"image/draw" // 标准库
 	"image/jpeg"
 	"log"
 	"math"
@@ -19,7 +19,7 @@ import (
 	"github.com/fogleman/gg"
 	"github.com/golang/freetype/truetype"
 	"github.com/guohuiyuan/qzonewall-go/internal/model"
-	xdraw "golang.org/x/image/draw" // 扩展库：起别名 xdraw，提供 CatmullRom 高质量缩放
+	xdraw "golang.org/x/image/draw" // 扩展库
 	"golang.org/x/image/font"
 )
 
@@ -73,7 +73,7 @@ func (r *Renderer) RenderPost(post *model.Post) ([]byte, error) {
 		BubblePadV  = 25.0
 		LineHeight  = 1.4
 		ImgGap      = 10.0
-		ImgSize     = 220.0 // 九宫格单图尺寸
+		ImgSizeMax  = 220.0 // 九宫格单图最大尺寸
 	)
 
 	// ── 2. 计算布局 ──
@@ -102,10 +102,11 @@ func (r *Renderer) RenderPost(post *model.Post) ([]byte, error) {
 	imgAreaH := 0.0
 	imgCount := len(post.Images)
 	var imgCols, imgRows int
+	var gridItemSize float64 // 动态计算的图片大小
 
 	if imgCount > 0 {
 		if imgCount == 1 {
-			// 单图模式：预留最大高度，实际绘制时按比例调整
+			// 单图模式
 			imgAreaH = 500.0
 		} else {
 			// 九宫格模式
@@ -113,8 +114,18 @@ func (r *Renderer) RenderPost(post *model.Post) ([]byte, error) {
 			if imgCount == 2 || imgCount == 4 {
 				imgCols = 2
 			}
+
+			// 【关键修改】动态计算 size，防止超出右边界
+			// 公式：(内容总宽 - (列数-1)*间隙) / 列数
+			gridItemSize = (contentMaxW - float64(imgCols-1)*ImgGap) / float64(imgCols)
+
+			// 限制最大尺寸，避免匿名模式下图片过大
+			if gridItemSize > ImgSizeMax {
+				gridItemSize = ImgSizeMax
+			}
+
 			imgRows = int(math.Ceil(float64(imgCount) / float64(imgCols)))
-			imgAreaH = float64(imgRows)*ImgSize + float64(imgRows-1)*ImgGap
+			imgAreaH = float64(imgRows)*gridItemSize + float64(imgRows-1)*ImgGap
 		}
 	}
 
@@ -212,10 +223,15 @@ func (r *Renderer) RenderPost(post *model.Post) ([]byte, error) {
 				b := rawImg.Bounds()
 				origW, origH := float64(b.Dx()), float64(b.Dy())
 
-				const MaxW = 400.0
+				const BaseMaxW = 400.0
+				// 确保单图也不超出内容区域
+				maxW := BaseMaxW
+				if maxW > contentMaxW {
+					maxW = contentMaxW
+				}
 				const MaxH = 500.0
 
-				scale := math.Min(MaxW/origW, MaxH/origH)
+				scale := math.Min(maxW/origW, MaxH/origH)
 				if scale > 1.0 {
 					scale = 1.0
 				}
@@ -243,19 +259,20 @@ func (r *Renderer) RenderPost(post *model.Post) ([]byte, error) {
 				col := i % imgCols
 				row := i / imgCols
 
-				ix := contentX + float64(col)*(ImgSize+ImgGap)
-				iy := currContentY + float64(row)*(ImgSize+ImgGap)
+				// 使用动态计算的 gridItemSize
+				ix := contentX + float64(col)*(gridItemSize+ImgGap)
+				iy := currContentY + float64(row)*(gridItemSize+ImgGap)
 
-				img := downloadAndCrop(imgUrl, int(ImgSize))
+				img := downloadAndCrop(imgUrl, int(gridItemSize))
 				if img != nil {
 					dc.Push()
-					dc.DrawRoundedRectangle(ix, iy, ImgSize, ImgSize, 8)
+					dc.DrawRoundedRectangle(ix, iy, gridItemSize, gridItemSize, 8)
 					dc.Clip()
 					dc.DrawImage(img, int(ix), int(iy))
 					dc.Pop()
 					dc.ResetClip()
 				} else {
-					drawErrorPlaceholder(dc, ix, iy, ImgSize, ImgSize)
+					drawErrorPlaceholder(dc, ix, iy, gridItemSize, gridItemSize)
 				}
 			}
 		}
@@ -346,7 +363,6 @@ func downloadAndCrop(url string, size int) image.Image {
 
 func resizeImage(src image.Image, w, h int) image.Image {
 	dst := image.NewRGBA(image.Rect(0, 0, w, h))
-	// 使用 xdraw.CatmullRom
 	xdraw.CatmullRom.Scale(dst, dst.Bounds(), src, src.Bounds(), draw.Over, nil)
 	return dst
 }
@@ -366,7 +382,6 @@ func cropToSquare(src image.Image, size int) image.Image {
 	newH := int(float64(h) * scale)
 
 	tmp := image.NewRGBA(image.Rect(0, 0, newW, newH))
-	// 使用 xdraw.CatmullRom
 	xdraw.CatmullRom.Scale(tmp, tmp.Bounds(), src, src.Bounds(), draw.Over, nil)
 
 	cropX := (newW - size) / 2

@@ -26,16 +26,33 @@ else
     exit 1
 fi
 
-# 2. 目录处理
+# 2. 目录处理 (重点强调)
 WORK_DIR="wall"
 if [ ! -d "$WORK_DIR" ]; then
+    echo "📂 创建工作目录: $WORK_DIR"
     mkdir -p "$WORK_DIR"
 fi
-cd "$WORK_DIR"
-echo "📂 当前工作目录: $(pwd)"
 
-# 3. 创建必要目录与权限控制
-# 这是防止挂载失败和权限不足的关键步骤
+# !!! 关键步骤：进入目录 !!!
+cd "$WORK_DIR"
+echo "📂 已进入工作目录: $(pwd)"
+echo "⚠️  接下来的所有操作都将在该目录下执行"
+
+# 3. 清理旧进程 (新增功能)
+echo "🧹 正在检查并清理旧服务..."
+
+# 尝试通过 Compose 停止
+$DOCKER_COMPOSE_CMD down 2>/dev/null || true
+
+# 双重保险：检查是否有同名容器（防止之前是用 docker run 手动启动的）
+if docker ps -a --format '{{.Names}}' | grep -q "^qzonewall$"; then
+    echo "   ⚠️ 发现旧的 qzonewall 容器实例，正在强制删除..."
+    docker rm -f qzonewall
+else
+    echo "   ✅ 无残留旧容器"
+fi
+
+# 4. 创建必要目录与权限控制
 if [ ! -d "data" ]; then
     echo "📁 创建数据目录 data/ ..."
     mkdir -p data
@@ -48,8 +65,8 @@ if [ ! -d "uploads" ]; then
     chmod 777 uploads
 fi
 
-# 4. 创建配置文件 (如果不存在)
-# ⚠️ 必须在启动容器前确保 config.yaml 是个文件，否则 Docker 会把它当成目录挂载！
+# 5. 创建配置文件 (如果不存在)
+# ⚠️ 必须在启动容器前确保 config.yaml 是个文件
 if [ ! -f "config.yaml" ]; then
     echo "📝 生成 config.yaml..."
     cat > config.yaml << 'EOF'
@@ -109,9 +126,8 @@ else
     echo "ℹ️  配置文件已存在 (跳过创建)"
 fi
 
-# 5. 生成 docker-compose.yml
-# 每次部署都刷新这个文件，确保配置最新
-echo "📝 生成 docker-compose.yml..."
+# 6. 生成 docker-compose.yml
+echo "📝 生成/更新 docker-compose.yml..."
 cat > docker-compose.yml <<EOF
 services:
   qzonewall:
@@ -128,14 +144,14 @@ services:
       - TZ=Asia/Shanghai
 EOF
 
-# 6. 启动服务
+# 7. 启动服务
 echo "📦 拉取最新镜像..."
 $DOCKER_COMPOSE_CMD pull
 
-echo "🏃 启动/重建容器..."
+echo "🏃 启动容器 (在 $WORK_DIR 目录下)..."
 $DOCKER_COMPOSE_CMD up -d
 
-# 7. 检查状态
+# 8. 检查状态
 echo "⏳ 等待初始化 (3秒)..."
 sleep 3
 
@@ -144,13 +160,17 @@ if docker ps | grep -q "qzonewall"; then
     echo "✅ 部署成功！"
     echo "------------------------------------------------"
     echo "🌐 管理后台: http://localhost:8081"
-    echo "📊 查看日志: $DOCKER_COMPOSE_CMD logs -f"
-    echo "🛑 停止服务: $DOCKER_COMPOSE_CMD down"
+    echo ""
+    echo "👇 常用维护命令 (请务必先进入 wall 目录):"
+    echo "   cd $(pwd)"
+    echo "   查看日志: $DOCKER_COMPOSE_CMD logs -f"
+    echo "   停止服务: $DOCKER_COMPOSE_CMD down"
+    echo "   重启服务: $DOCKER_COMPOSE_CMD restart"
     echo "------------------------------------------------"
 else
     echo ""
     echo "❌ 容器启动失败！"
     echo "请运行以下命令查看错误日志："
-    echo "$DOCKER_COMPOSE_CMD logs"
+    echo "cd $(pwd) && $DOCKER_COMPOSE_CMD logs"
     exit 1
 fi

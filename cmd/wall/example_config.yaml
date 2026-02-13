@@ -1,62 +1,44 @@
 # QzoneWall-Go 配置文件
 
-# QQ空间配置
 qzone:
-  # Cookie 有效性轮询间隔
   keep_alive: 10s
-  # 接口最大重试次数
   max_retry: 2
-  # HTTP 超时
   timeout: 30s
 
-# QQ 机器人配置 (NapCat + ZeroBot)
 bot:
   zero:
-    nickname:
-      - "椛椛"
-      - "ATRI"
-      - "atri"
-      - "亚托莉"
+    nickname: ["表白墙", "墙墙"]
     command_prefix: "/"
-    super_users:
-      - 123456
+    super_users: [123456789] # ⚠️ 修改这里
     ring_len: 4096
     latency: 1000000
     max_process_time: 240000000000
   ws:
-    - url: "ws://localhost:3001"
-      access_token: "123456"
-  # 管理群号（用于通知）
-  manage_group: 123456
+    - url: "ws://localhost:3001" # ⚠️ 修改这里
+      access_token: "your_token"   # ⚠️ 修改这里
+  manage_group: 0
 
-# 表白墙配置
 wall:
-  show_author: false   # 发布到空间时，非匿名稿件是否追加"来自xxx的投稿"署名
-  anon_default: false # 投稿页默认是否勾选"匿名投稿"
+  show_author: false
+  anon_default: false
   max_images: 9
   max_text_len: 2000
   publish_delay: 0s
 
-# 数据库
 database:
   path: "data/data.db"
 
-# Web 管理后台
 web:
   enable: true
   addr: ":8081"
   admin_user: "admin"
-  admin_pass: ""
+  admin_pass: "admin123" # ⚠️ 修改这里
 
-# 敏感词
 censor:
   enable: true
-  words:
-    - "广告"
-    - "代写"
+  words: ["广告", "代写"]
   words_file: ""
 
-# 任务调度
 worker:
   workers: 1
   retry_count: 3
@@ -64,6 +46,5 @@ worker:
   rate_limit: 30s
   poll_interval: 5s
 
-# 日志
 log:
   level: "info"

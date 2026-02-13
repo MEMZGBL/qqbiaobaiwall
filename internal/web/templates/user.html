@@ -107,22 +107,74 @@
   .msg.ok { background: #f0fdf4; color: #166534; }
   .msg.err { background: #fff5f5; color: #c53030; }
 
+  /* [新增] Qzone 链接/状态样式 */
+  .wall-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 99px;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    margin-right: auto; /* 在 flex 布局中推到左侧或中间 */
+    margin-left: 12px;
+    transition: all 0.2s ease;
+  }
+  
+  /* 在线状态：绿色，可点击 */
+  .wall-badge.online {
+    background: #ecfdf5;
+    color: #059669;
+    border: 1px solid #a7f3d0;
+  }
+  .wall-badge.online:hover {
+    background: #d1fae5;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(16, 185, 129, 0.15);
+  }
+
+  /* 离线状态：灰色/红色，不可点击 */
+  .wall-badge.offline {
+    background: #f1f5f9;
+    color: #64748b;
+    border: 1px solid #e2e8f0;
+    cursor: default;
+  }
+
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .dot.green { background: #10b981; box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2); }
+  .dot.gray { background: #94a3b8; }
+
   @media (max-width: 640px) {
-    .navbar {
-      margin: 10px 12px 0;
-      padding: 10px 12px;
-      border-radius: 10px;
-      flex-wrap: wrap;
-      gap: 10px;
+    /* 移动端调整 */
+    .wall-badge {
+      order: 3; /* 让它排在最后或换行 */
+      width: 100%;
+      justify-content: center;
+      margin: 8px 0 0 0;
     }
-    .nav-actions { width: 100%; }
-    .card { padding: 18px; }
   }
 </style>
 </head>
 <body>
 <div class="navbar">
-  <h2>💌 表白墙投稿</h2>
+  <div style="display:flex;align-items:center">
+    <h2>💌 表白墙投稿</h2>
+    
+    {{if .QzoneOnline}}
+      <a href="https://user.qzone.qq.com/{{.QzoneUIN}}" target="_blank" class="wall-badge online" title="点击访问表白墙">
+        <span class="dot green"></span>
+        进墙看看
+      </a>
+    {{else}}
+      <span class="wall-badge offline" title="管理员暂未登录">
+        <span class="dot gray"></span>
+        墙休息中
+      </span>
+    {{end}}
+  </div>
+
   <div class="nav-actions">
     {{if .IsAdmin}}
       <span class="user-chip">{{.Account.Username}}</span><span class="nav-sep">|</span><a href="/admin">管理后台</a><span class="nav-sep">|</span><a href="/logout">退出</a>

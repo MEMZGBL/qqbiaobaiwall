@@ -19,11 +19,16 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o wall ./cmd/wall
 # Runtime stage
 FROM alpine:latest
 
-# [新增] 替换为阿里云镜像源，解决 TLS 连接错误和速度慢的问题
+# [新增] 替换为阿里云镜像源
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 
-# Install ca-certificates for HTTPS requests
-RUN apk --no-cache add ca-certificates
+# [修改] 安装 ca-certificates 和 tzdata，并设置时区为 Asia/Shanghai
+RUN apk --no-cache add ca-certificates tzdata \
+    && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
+    && echo "Asia/Shanghai" > /etc/timezone
+
+# [新增] 设置 TZ 环境变量
+ENV TZ=Asia/Shanghai
 
 # Create a non-root user
 RUN adduser -D -s /bin/sh appuser

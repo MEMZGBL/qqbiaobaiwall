@@ -255,11 +255,24 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSubmitPage(w http.ResponseWriter, r *http.Request) {
 	account := s.currentAccount(r)
+
+	// [新增] 获取 Qzone 状态
+	var qzoneUIN int64
+	var qzoneOnline bool
+	if s.qzClient != nil {
+		qzoneUIN = s.qzClient.UIN()
+		// 复用已有的检查逻辑
+		qzoneOnline = s.isQzoneLoggedIn()
+	}
+
 	data := map[string]interface{}{
 		"Account":   account,
 		"IsAdmin":   account != nil && account.IsAdmin(),
 		"MaxImages": s.wallCfg.MaxImages,
 		"Message":   r.URL.Query().Get("msg"),
+		// [新增] 传递给模板
+		"QzoneUIN":    qzoneUIN,
+		"QzoneOnline": qzoneOnline,
 	}
 	s.renderTemplate(w, "user.html", data)
 }

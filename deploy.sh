@@ -120,6 +120,15 @@ sleep 3
 if docker ps | grep -q "$CONTAINER_NAME"; then
     echo "✅ 部署成功！日志如下："
     docker logs --tail 5 $CONTAINER_NAME
+    
+    echo ""
+    echo "--------------------------------------------------------"
+    echo "🔔  重要提示："
+    echo "    所有的配置和数据都在 'wall' 目录中。"
+    echo "    如果你需要修改配置文件或查看数据，请务必先进入目录："
+    echo ""
+    echo "    👉  cd wall"
+    echo "--------------------------------------------------------"
 else
     echo "❌ 启动失败，查看日志："
     docker logs $CONTAINER_NAME

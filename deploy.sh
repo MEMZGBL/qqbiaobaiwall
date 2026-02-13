@@ -4,15 +4,25 @@
 export MSYS_NO_PATHCONV=1
 # ---------------------------------------------------------
 
-# QzoneWall-Go Docker 部署脚本
+# QzoneWall-Go Docker Compose 部署脚本
 
 set -e
 
-echo "🚀 开始部署 QzoneWall-Go..."
+echo "🚀 开始部署 QzoneWall-Go (Docker Compose 版)..."
 
-# 1. 检查 Docker
+# 1. 检查 Docker 和 Docker Compose
 if ! command -v docker &> /dev/null; then
     echo "❌ Docker 未安装"
+    exit 1
+fi
+
+# 检查是使用 'docker compose' (新版) 还是 'docker-compose' (旧版)
+if docker compose version &> /dev/null; then
+    DOCKER_COMPOSE_CMD="docker compose"
+elif command -v docker-compose &> /dev/null; then
+    DOCKER_COMPOSE_CMD="docker-compose"
+else
+    echo "❌ 未找到 Docker Compose 插件或命令"
     exit 1
 fi
 
@@ -22,28 +32,24 @@ if [ ! -d "$WORK_DIR" ]; then
     mkdir -p "$WORK_DIR"
 fi
 cd "$WORK_DIR"
+echo "📂 当前工作目录: $(pwd)"
 
-# 3. 拉取镜像
-echo "📦 拉取 Docker 镜像..."
-docker pull guohuiyuan/qzonewall-go:latest
-
-# 4. 创建必要目录
-# 数据目录
+# 3. 创建必要目录与权限控制
+# 这是防止挂载失败和权限不足的关键步骤
 if [ ! -d "data" ]; then
     echo "📁 创建数据目录 data/ ..."
     mkdir -p data
     chmod 777 data
 fi
 
-# [新增] 图片上传目录
 if [ ! -d "uploads" ]; then
     echo "📁 创建图片目录 uploads/ ..."
     mkdir -p uploads
-    # 赋予权限防止上传失败
     chmod 777 uploads
 fi
 
-# 5. 创建配置文件
+# 4. 创建配置文件 (如果不存在)
+# ⚠️ 必须在启动容器前确保 config.yaml 是个文件，否则 Docker 会把它当成目录挂载！
 if [ ! -f "config.yaml" ]; then
     echo "📝 生成 config.yaml..."
     cat > config.yaml << 'EOF'
@@ -100,49 +106,51 @@ log:
 EOF
     echo "✅ 配置文件已创建"
 else
-    echo "ℹ️  配置文件已存在"
+    echo "ℹ️  配置文件已存在 (跳过创建)"
 fi
 
-# 6. 停止旧容器
-CONTAINER_NAME="qzonewall"
-docker stop "$CONTAINER_NAME" >/dev/null 2>&1 || true
-docker rm "$CONTAINER_NAME" >/dev/null 2>&1 || true
+# 5. 生成 docker-compose.yml
+# 每次部署都刷新这个文件，确保配置最新
+echo "📝 生成 docker-compose.yml..."
+cat > docker-compose.yml <<EOF
+services:
+  qzonewall:
+    image: guohuiyuan/qzonewall-go:latest
+    container_name: qzonewall
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./config.yaml:/home/appuser/config.yaml
+      - ./data:/home/appuser/data
+      - ./uploads:/home/appuser/uploads
+    environment:
+      - TZ=Asia/Shanghai
+EOF
 
-# 7. 运行新容器
-echo "🏃 启动新容器..."
+# 6. 启动服务
+echo "📦 拉取最新镜像..."
+$DOCKER_COMPOSE_CMD pull
 
-# [修改] 挂载 uploads 目录
-docker run -d \
-  --name "$CONTAINER_NAME" \
-  --restart unless-stopped \
-  -p 8081:8081 \
-  -v "$(pwd)/config.yaml://home/appuser/config.yaml" \
-  -v "$(pwd)/data://home/appuser/data" \
-  -v "$(pwd)/uploads://home/appuser/uploads" \
-  guohuiyuan/qzonewall-go:latest
+echo "🏃 启动/重建容器..."
+$DOCKER_COMPOSE_CMD up -d
 
-# 8. 检查状态
+# 7. 检查状态
 echo "⏳ 等待初始化 (3秒)..."
 sleep 3
 
-if docker ps | grep -q "$CONTAINER_NAME"; then
+if docker ps | grep -q "qzonewall"; then
     echo ""
     echo "✅ 部署成功！"
     echo "------------------------------------------------"
-    echo "📂 工作目录: $(pwd)"
     echo "🌐 管理后台: http://localhost:8081"
-    echo "👤 默认账号: admin / admin123 (请在配置中修改)"
+    echo "📊 查看日志: $DOCKER_COMPOSE_CMD logs -f"
+    echo "🛑 停止服务: $DOCKER_COMPOSE_CMD down"
     echo "------------------------------------------------"
-    echo "📊 查看日志: docker logs -f $CONTAINER_NAME"
-    echo "🛑 停止服务: docker stop $CONTAINER_NAME"
-    echo "🔄 重启服务: docker restart $CONTAINER_NAME"
-    echo "------------------------------------------------"
-    echo "⚠️  提示：如果你在新的终端操作，请先进入目录："
-    echo "    cd wall"
 else
     echo ""
     echo "❌ 容器启动失败！"
     echo "请运行以下命令查看错误日志："
-    echo "docker logs $CONTAINER_NAME"
+    echo "$DOCKER_COMPOSE_CMD logs"
     exit 1
 fi

@@ -1,0 +1,16 @@
+services:
+  qzonewall:
+    image: guohuiyuan/qzonewall-go:latest
+    container_name: qzonewall
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    volumes:
+      # ⚠️ 注意：挂载文件前，宿主机必须先存在该文件，否则 Docker 会生成目录导致报错
+      - ./config.yaml:/home/appuser/config.yaml
+      - ./data:/home/appuser/data
+      - ./uploads:/home/appuser/uploads
+    environment:
+      - TZ=Asia/Shanghai
+    # 确保容器以非 root 用户运行时能写入挂载卷
+    # (依赖于宿主机目录权限已设为 777 或归属正确)

@@ -87,7 +87,7 @@ go run ./cmd/wall
 
 ### 快速部署（推荐）
 
-使用自动部署脚本：
+#### 选项 1: 使用自动部署脚本
 
 ```bash
 # 下载部署脚本
@@ -102,6 +102,17 @@ chmod +x deploy.sh
 - 拉取最新 Docker 镜像
 - 创建示例配置文件
 - 启动容器并挂载配置
+
+#### 选项 2: 使用 Docker Compose
+
+```bash
+# 克隆项目或下载 docker-compose.yml
+# 编辑 config.yaml 进行配置
+# 确保 data/ 和 uploads/ 目录存在
+
+# 启动服务
+docker-compose up -d
+```
 
 ### 手动部署
 
@@ -135,75 +146,39 @@ docker pull guohuiyuan/qzonewall-go:latest
 
 #### 运行容器
 
-##### 基本运行（使用内置默认配置）
+项目提供了 `docker-compose.yml` 文件，推荐使用 Docker Compose 来管理容器，这可以简化配置和数据持久化。
+
+##### 使用 Docker Compose（推荐）
+
+```bash
+# 确保当前目录有 config.yaml、data/ 和 uploads/ 目录
+# 编辑 config.yaml 进行配置
+
+# 启动服务
+docker-compose up -d
+
+# 查看日志
+docker-compose logs -f
+
+# 停止服务
+docker-compose down
+```
+
+##### 使用 Docker Run（备选）
+
+###### 基本运行（使用内置默认配置）
 
 ```bash
 docker run -p 8081:8081 qzonewall-go
 ```
 
-##### 自定义配置（推荐）
-
-```bash
-# 创建工作目录
-mkdir wall && cd wall
-
-# 复制并修改配置文件
-cp ../config.yaml config.yaml
-# 编辑 config.yaml 进行自定义配置
-
-# 运行容器并挂载配置
-docker run -d --name qzonewall --restart unless-stopped \
-  -p 8081:8081 \
-  -v "$(pwd)//config.yaml://home/appuser/config.yaml" \
-  guohuiyuan/qzonewall-go:latest
-```
-
-##### 持久化数据
-
-为了保存数据库和上传的文件：
-
-```bash
-# 创建工作目录
-mkdir wall && cd wall
-
-# 复制配置文件
-cp ../config.yaml config.yaml
-# 编辑 config.yaml
-
-# 创建数据目录
-mkdir -p data
-chmod 777 data
-
-# 运行容器并挂载数据目录
-docker run -d --name qzonewall --restart unless-stopped \
-  -p 8081:8081 \
-  -v "$(pwd)//config.yaml://home/appuser/config.yaml" \
-  -v "$(pwd)//data://home/appuser/data" \
-  guohuiyuan/qzonewall-go:latest
-```
-
-##### 停止和重启容器
-
-```bash
-# 停止容器
-docker stop qzonewall
-
-# 重启容器
-docker restart qzonewall
-
-# 查看日志
-docker logs -f qzonewall
-
-# 完全删除容器（谨慎操作，会丢失未持久化的数据）
-docker rm qzonewall
-```
-
 ### Docker 环境说明
 
 - **端口**: 容器内部使用 8081 端口，可通过 `-p` 参数映射到宿主机端口
-- **配置**: 容器内包含默认配置，通过挂载 `config.yaml` 可覆盖
+- **配置**: 容器内包含默认配置，通过挂载 `config.yaml` 可覆盖。推荐使用 `docker-compose.yml` 进行配置管理
 - **数据持久化**: SQLite 数据库和上传文件默认存储在容器内，重启容器会丢失。如需持久化，请挂载 `/home/appuser/data` 和 `/home/appuser/uploads` 目录
 - **用户**: 容器以非 root 用户 `appuser` 运行，确保安全性
+- **Docker Compose**: 项目包含 `docker-compose.yml` 文件，自动处理卷挂载和环境配置
 
 ## 配置说明（config.yaml）
 

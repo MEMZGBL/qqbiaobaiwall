@@ -162,17 +162,19 @@
   <div style="display:flex;align-items:center">
     <h2>💌 表白墙投稿</h2>
     
-    {{if .QzoneOnline}}
-      <a href="https://user.qzone.qq.com/{{.QzoneUIN}}" target="_blank" class="wall-badge online" title="点击访问表白墙">
-        <span class="dot green"></span>
-        进墙看看
-      </a>
-    {{else}}
-      <span class="wall-badge offline" title="管理员暂未登录">
-        <span class="dot gray"></span>
-        墙休息中
-      </span>
-    {{end}}
+    <span id="wallStatus">
+      {{if .QzoneOnline}}
+        <a href="https://user.qzone.qq.com/{{.QzoneUIN}}" target="_blank" class="wall-badge online" title="点击访问表白墙">
+          <span class="dot green"></span>
+          进墙看看
+        </a>
+      {{else}}
+        <span class="wall-badge offline" title="管理员暂未登录">
+          <span class="dot gray"></span>
+          墙休息中
+        </span>
+      {{end}}
+    </span>
   </div>
 
   <div class="nav-actions">
@@ -246,6 +248,39 @@ document.getElementById('submitForm').addEventListener('submit', async function(
     btn.textContent = '提交投稿';
   }
 });
+
+async function refreshWallStatus() {
+  const container = document.getElementById('wallStatus');
+  if (!container) return;
+  try {
+    const resp = await fetch('{{.Root}}/api/qzone/status', { cache: 'no-store' });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (!data || !data.ok) return;
+    
+    // 如果返回状态是在线
+    if (data.cookie_valid) {
+      // 检查当前是否已经是在线状态 (避免重复渲染导致闪烁)
+      if (container.querySelector('.wall-badge.online')) return;
+      container.innerHTML = `
+        <a href="https://user.qzone.qq.com/${data.uin}" target="_blank" class="wall-badge online" title="点击访问表白墙">
+          <span class="dot green"></span>
+          进墙看看
+        </a>`;
+    } else {
+      // 离线状态
+      if (container.querySelector('.wall-badge.offline')) return;
+      container.innerHTML = `
+        <span class="wall-badge offline" title="管理员暂未登录">
+          <span class="dot gray"></span>
+          墙休息中
+        </span>`;
+    }
+  } catch (e) {}
+}
+
+// 每 5 秒刷新一次状态
+setInterval(refreshWallStatus, 5000);
 </script>
 </body>
 </html>

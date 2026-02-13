@@ -45,6 +45,37 @@
   .navbar-right a:active { transform: translateY(0); }
   .container { max-width: 900px; margin: 20px auto; padding: 0 16px; }
 
+  /* [新增] Qzone 链接/状态样式 - 复用自 user.html */
+  .wall-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 99px;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    margin-right: auto;
+    margin-left: 12px;
+    transition: all 0.2s ease;
+  }
+  .wall-badge.online {
+    background: #ecfdf5;
+    color: #059669;
+    border: 1px solid #a7f3d0;
+  }
+  .wall-badge.online:hover {
+    background: #d1fae5;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(16, 185, 129, 0.15);
+  }
+  .wall-badge.offline {
+    background: #f1f5f9;
+    color: #64748b;
+    border: 1px solid #e2e8f0;
+    cursor: default;
+  }
+  
   /* 状态栏 */
   .status-bar { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
   .status-bar .badge {
@@ -84,8 +115,9 @@
   .cookie-bar { background: white; padding: 12px 16px; border-radius: 10px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
   .cookie-status { font-size: 14px; }
   .cookie-status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
-  .dot.green { background: #22c55e; }
+  .dot.green { background: #22c55e; box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2); }
   .dot.red { background: #ef4444; }
+  .dot.gray { background: #94a3b8; }
   .btn-sm { padding: 6px 14px; border-radius: 6px; border: none; font-size: 13px; cursor: pointer; }
   .btn-primary { background: #667eea; color: white; }
   .btn-primary:hover { background: #5a6fd6; }
@@ -206,12 +238,35 @@
     .batch-bar { padding: 10px; }
     .batch-left, .batch-actions { width: 100%; }
     .batch-actions button { flex: 1; }
+    /* 移动端徽章换行 */
+    .wall-badge {
+      order: 3;
+      width: 100%;
+      justify-content: center;
+      margin: 8px 0 0 0;
+    }
   }
 </style>
 </head>
 <body>
 <div class="navbar">
-  <h2>🔧 表白墙管理</h2>
+  <div style="display:flex;align-items:center">
+    <h2>🔧 表白墙管理</h2>
+    <span id="wallStatusNav">
+      {{if .CookieValid}}
+        <a href="https://user.qzone.qq.com/{{.QzoneUIN}}" target="_blank" class="wall-badge online" title="点击访问表白墙">
+          <span class="dot green"></span>
+          进墙看看
+        </a>
+      {{else}}
+        <span class="wall-badge offline" title="管理员暂未登录">
+          <span class="dot gray"></span>
+          墙休息中
+        </span>
+      {{end}}
+    </span>
+  </div>
+
   <div class="navbar-right">
     <span class="user-chip">{{.Account.Username}}</span>
     <a href="{{.Root}}/submit">投稿页</a>
@@ -348,17 +403,44 @@ async function rejectPost(id) {
 let qrPollTimer = null;
 
 async function refreshCookieStatus() {
-  const el = document.getElementById('cookieStatusText');
-  if (!el) return;
+  const statusEl = document.getElementById('cookieStatusText');
+  const navEl = document.getElementById('wallStatusNav');
+  
   try {
     const resp = await fetch('{{.Root}}/api/qzone/status', { cache: 'no-store' });
     if (!resp.ok) return;
     const data = await resp.json();
     if (!data || !data.ok) return;
-    if (data.cookie_valid) {
-      el.innerHTML = '<span class="dot green"></span>QQ空间已登录 (UIN: ' + data.uin + ')';
-    } else {
-      el.innerHTML = '<span class="dot red"></span>QQ空间未登录';
+    
+    // 更新中间的状态条
+    if (statusEl) {
+      if (data.cookie_valid) {
+        statusEl.innerHTML = '<span class="dot green"></span>QQ空间已登录 (UIN: ' + data.uin + ')';
+      } else {
+        statusEl.innerHTML = '<span class="dot red"></span>QQ空间未登录';
+      }
+    }
+
+    // 更新顶部的“进墙”徽章 (保持与 user.html 类似的逻辑)
+    if (navEl) {
+      if (data.cookie_valid) {
+        // 如果已经是正确状态则不刷新，避免闪烁
+        if (!navEl.querySelector('.wall-badge.online')) {
+          navEl.innerHTML = `
+            <a href="https://user.qzone.qq.com/${data.uin}" target="_blank" class="wall-badge online" title="点击访问表白墙">
+              <span class="dot green"></span>
+              进墙看看
+            </a>`;
+        }
+      } else {
+        if (!navEl.querySelector('.wall-badge.offline')) {
+          navEl.innerHTML = `
+            <span class="wall-badge offline" title="管理员暂未登录">
+              <span class="dot gray"></span>
+              墙休息中
+            </span>`;
+        }
+      }
     }
   } catch (e) {}
 }

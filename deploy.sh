@@ -27,12 +27,20 @@ cd "$WORK_DIR"
 echo "📦 拉取 Docker 镜像..."
 docker pull guohuiyuan/qzonewall-go:latest
 
-# 4. 创建 data 目录 (关键修改：使用文件夹而不是单文件)
+# 4. 创建必要目录
+# 数据目录
 if [ ! -d "data" ]; then
     echo "📁 创建数据目录 data/ ..."
     mkdir -p data
-    # 给该目录赋予宽泛权限，确保容器内非 root 用户能写入，解决 WAL 错误
     chmod 777 data
+fi
+
+# [新增] 图片上传目录
+if [ ! -d "uploads" ]; then
+    echo "📁 创建图片目录 uploads/ ..."
+    mkdir -p uploads
+    # 赋予权限防止上传失败
+    chmod 777 uploads
 fi
 
 # 5. 创建配置文件
@@ -67,7 +75,6 @@ wall:
   publish_delay: 0s
 
 database:
-  # [关键修改] 数据库路径指向挂载目录内部
   path: "data/data.db"
 
 web:
@@ -104,16 +111,17 @@ docker rm "$CONTAINER_NAME" >/dev/null 2>&1 || true
 # 7. 运行新容器
 echo "🏃 启动新容器..."
 
-# 注意：这里挂载的是 data 目录，解决权限问题
+# [修改] 挂载 uploads 目录
 docker run -d \
   --name "$CONTAINER_NAME" \
   --restart unless-stopped \
   -p 8081:8081 \
   -v "$(pwd)/config.yaml://home/appuser/config.yaml" \
   -v "$(pwd)/data://home/appuser/data" \
+  -v "$(pwd)/uploads://home/appuser/uploads" \
   guohuiyuan/qzonewall-go:latest
 
-# 8. 检查状态并输出提示
+# 8. 检查状态
 echo "⏳ 等待初始化 (3秒)..."
 sleep 3
 

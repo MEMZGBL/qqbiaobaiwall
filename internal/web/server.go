@@ -541,7 +541,9 @@ func (s *Server) handleAPIBatchApprove(w http.ResponseWriter, r *http.Request) {
 		var renderErr error
 
 		if s.renderer != nil && s.renderer.Available() {
-			renderPost := s.resolvePostImages(post)
+			// [修复] 使用本地路径解析器，而不是 resolvePostImages
+			// resolvePostImages 会加上 /wall 前缀导致后端无法读取文件
+			renderPost := s.resolvePostImagesForRender(post)
 			imgData, renderErr = s.renderer.RenderPost(renderPost)
 		} else {
 			renderErr = fmt.Errorf("renderer not available")
@@ -781,11 +783,8 @@ func (s *Server) handleAPIHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAPIQzoneStatus(w http.ResponseWriter, r *http.Request) {
-	account := s.currentAccount(r)
-	if account == nil || !account.IsAdmin() {
-		jsonResp(w, http.StatusForbidden, false, "forbidden")
-		return
-	}
+	// [修改] 允许公开访问此接口，以便 user.html 页面刷新状态
+	// 移除了管理员权限校验
 
 	uin := int64(0)
 	if s.qzClient != nil {
@@ -982,6 +981,31 @@ func (s *Server) resolvePostImages(p *model.Post) *model.Post {
 	return &clone
 }
 
+// [修改] resolvePostImagesForRender 专用于后端渲染
+func (s *Server) resolvePostImagesForRender(p *model.Post) *model.Post {
+	clone := *p
+	clone.Images = make([]string, len(p.Images))
+
+	// 获取 uploads 文件夹的绝对路径，例如 /home/appuser/uploads
+	// 如果 s.uploadDir 本身就是相对路径 "uploads"，Abs 会把它变成绝对路径
+	absUploadDir, err := filepath.Abs(s.uploadDir)
+	if err != nil {
+		absUploadDir = s.uploadDir // 降级处理
+	}
+
+	for i, img := range p.Images {
+		// 数据库中存储的是 "/uploads/xxx.jpg"
+		if strings.HasPrefix(img, "/uploads/") {
+			// 1. 提取文件名 (xxx.jpg)
+			filename := filepath.Base(img)
+			// 2. 拼接成容器内的绝对路径: /home/appuser/uploads/xxx.jpg
+			clone.Images[i] = filepath.Join(absUploadDir, filename)
+		} else {
+			clone.Images[i] = s.resolveImageURL(img)
+		}
+	}
+	return &clone
+}
 func (s *Server) resolveImageURL(img string) string {
 	if strings.HasPrefix(img, "http") {
 		return img

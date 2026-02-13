@@ -424,16 +424,30 @@ func WordWrap(dc *gg.Context, text string, maxWidth float64) []string {
 }
 
 func resolveLocalUploadPath(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
+	// 1. 如果是 http/https 网络链接，直接返回空，交给后续的 http 下载逻辑处理
+	if strings.HasPrefix(raw, "http://") || strings.HasPrefix(raw, "https://") {
 		return ""
 	}
-	local := strings.TrimPrefix(raw, "/")
-	local = strings.TrimPrefix(local, "./")
-	local = filepath.Clean(local)
-	prefix := "uploads" + string(filepath.Separator)
-	if local == "uploads" || strings.HasPrefix(local, prefix) {
-		return local
+
+	// 2. 清理路径格式 (处理 Windows/Linux 分隔符差异)
+	path := filepath.Clean(raw)
+
+	// 3. 核心逻辑：直接检查文件是否存在
+	// server.go 传递过来的是绝对路径，os.Stat 能直接找到它
+	info, err := os.Stat(path)
+	if err == nil && !info.IsDir() {
+		// 文件存在且不是文件夹，返回该路径供 os.Open 使用
+		return path
 	}
+
+	// 4. (保底逻辑) 如果传进来的是相对路径，尝试拼接当前运行目录下的 uploads
+	// 这一步通常用不到，因为 server.go 已经转成绝对路径了，但留着防守
+	wd, _ := os.Getwd()
+	absPath := filepath.Join(wd, path)
+	info, err = os.Stat(absPath)
+	if err == nil && !info.IsDir() {
+		return absPath
+	}
+
 	return ""
 }

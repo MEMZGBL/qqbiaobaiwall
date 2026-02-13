@@ -997,7 +997,9 @@ func (s *Server) resolvePostImagesForRender(p *model.Post) *model.Post {
 		// 数据库中存储的是 "/uploads/xxx.jpg"
 		if strings.HasPrefix(img, "/uploads/") {
 			// 1. 提取文件名 (xxx.jpg)
-			filename := filepath.Base(img)
+			// 【修改点】：使用 path.Base 而不是 filepath.Base
+			// path.Base 专门处理 "/" 分隔符，不管你在 Windows 还是 Linux 都不会错
+			filename := path.Base(img)
 			// 2. 拼接成容器内的绝对路径: /home/appuser/uploads/xxx.jpg
 			clone.Images[i] = filepath.Join(absUploadDir, filename)
 		} else {

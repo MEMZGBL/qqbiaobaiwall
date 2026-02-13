@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="icon" type="image/png" href="/icon.png">
+<link rel="icon" type="image/png" href="{{.Root}}/icon.png">
 <title>管理后台 - 表白墙</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -214,14 +214,13 @@
   <h2>🔧 表白墙管理</h2>
   <div class="navbar-right">
     <span class="user-chip">{{.Account.Username}}</span>
-    <a href="/submit">投稿页</a>
-    <a href="/logout">退出</a>
+    <a href="{{.Root}}/submit">投稿页</a>
+    <a href="{{.Root}}/logout">退出</a>
   </div>
 </div>
 <div class="container">
   {{if .Message}}<div class="msg ok">{{.Message}}</div>{{end}}
 
-  <!-- Cookie 状态 -->
   <div class="cookie-bar">
     <div class="cookie-status" id="cookieStatusText">
       {{if .CookieValid}}
@@ -233,21 +232,20 @@
     <button class="btn-sm btn-primary" onclick="showQRModal()">扫码登录</button>
   </div>
 
-  <!-- 状态筛选 -->
   <div class="status-bar">
-    <a class="badge all {{if eq .StatusFilter ""}}active{{end}}" href="/admin">
+    <a class="badge all {{if eq .StatusFilter ""}}active{{end}}" href="{{.Root}}/admin">
       <span>全部</span><span class="count">{{.TotalCount}}</span>
     </a>
-    <a class="badge pending {{if eq .StatusFilter "pending"}}active{{end}}" href="/admin?status=pending">
+    <a class="badge pending {{if eq .StatusFilter "pending"}}active{{end}}" href="{{.Root}}/admin?status=pending">
       <span>待审核</span><span class="count">{{.PendingCount}}</span>
     </a>
-    <a class="badge approved {{if eq .StatusFilter "approved"}}active{{end}}" href="/admin?status=approved">
+    <a class="badge approved {{if eq .StatusFilter "approved"}}active{{end}}" href="{{.Root}}/admin?status=approved">
       <span>已通过</span><span class="count">{{.ApprovedCount}}</span>
     </a>
-    <a class="badge rejected {{if eq .StatusFilter "rejected"}}active{{end}}" href="/admin?status=rejected">
+    <a class="badge rejected {{if eq .StatusFilter "rejected"}}active{{end}}" href="{{.Root}}/admin?status=rejected">
       <span>已拒绝</span><span class="count">{{.RejectedCount}}</span>
     </a>
-    <a class="badge published {{if eq .StatusFilter "published"}}active{{end}}" href="/admin?status=published">
+    <a class="badge published {{if eq .StatusFilter "published"}}active{{end}}" href="{{.Root}}/admin?status=published">
       <span>已发布</span><span class="count">{{.PublishedCount}}</span>
     </a>
   </div>
@@ -263,7 +261,6 @@
     </div>
   </div>
 
-  <!-- 投稿列表 -->
   {{if .Posts}}
     {{range .Posts}}
     <div class="post-card {{statusClass .Status}}" id="post-{{.ID}}">
@@ -303,7 +300,6 @@
   {{end}}
 </div>
 
-<!-- QR Code Modal -->
 <div class="modal-overlay" id="qrModal">
   <div class="modal">
     <h3>📱 扫码登录QQ空间</h3>
@@ -317,7 +313,7 @@
 async function approvePost(id) {
   if (!confirm('确认通过稿件 #' + id + '?')) return;
   try {
-    const resp = await fetch('/api/approve', {
+    const resp = await fetch('{{.Root}}/api/approve', {
       method: 'POST',
       headers: {'Content-Type':'application/x-www-form-urlencoded'},
       body: 'id=' + id
@@ -335,7 +331,7 @@ async function rejectPost(id) {
   const reason = prompt('拒绝理由（可选）:', '');
   if (reason === null) return;
   try {
-    const resp = await fetch('/api/reject', {
+    const resp = await fetch('{{.Root}}/api/reject', {
       method: 'POST',
       headers: {'Content-Type':'application/x-www-form-urlencoded'},
       body: 'id=' + id + '&reason=' + encodeURIComponent(reason)
@@ -355,7 +351,7 @@ async function refreshCookieStatus() {
   const el = document.getElementById('cookieStatusText');
   if (!el) return;
   try {
-    const resp = await fetch('/api/qzone/status', { cache: 'no-store' });
+    const resp = await fetch('{{.Root}}/api/qzone/status', { cache: 'no-store' });
     if (!resp.ok) return;
     const data = await resp.json();
     if (!data || !data.ok) return;
@@ -411,7 +407,7 @@ async function batchApprove() {
   btn.style.cursor = 'wait';
 
   try {
-    const resp = await fetch('/api/approve/batch', {
+    const resp = await fetch('{{.Root}}/api/approve/batch', {
       method: 'POST',
       headers: {'Content-Type': 'application/x-www-form-urlencoded'},
       body: 'ids=' + encodeURIComponent(ids.join(','))
@@ -452,7 +448,7 @@ async function batchReject() {
   const reason = prompt('批量拒绝理由（可选）:', '');
   if (reason === null) return;
   try {
-    const resp = await fetch('/api/reject/batch', {
+    const resp = await fetch('{{.Root}}/api/reject/batch', {
       method: 'POST',
       headers: {'Content-Type': 'application/x-www-form-urlencoded'},
       body: 'ids=' + encodeURIComponent(ids.join(',')) + '&reason=' + encodeURIComponent(reason)
@@ -476,7 +472,7 @@ function showQRModal() {
 
   // 请求二维码
   const img = document.getElementById('qrImage');
-  img.src = '/api/qrcode?' + Date.now();
+  img.src = '{{.Root}}/api/qrcode?' + Date.now();
   img.onload = function() {
     img.style.display = 'block';
     document.getElementById('qrStatus').textContent = '请用QQ扫描二维码';
@@ -496,7 +492,7 @@ function startQRPoll() {
   if (qrPollTimer) clearInterval(qrPollTimer);
   qrPollTimer = setInterval(async function() {
     try {
-      const resp = await fetch('/api/qrcode/status');
+      const resp = await fetch('{{.Root}}/api/qrcode/status');
       const data = await resp.json();
       const el = document.getElementById('qrStatus');
       switch(data.status) {

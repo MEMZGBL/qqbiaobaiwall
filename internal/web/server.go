@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -44,6 +45,9 @@ type Server struct {
 	server    *http.Server
 	uploadDir string
 
+	// [新增] 路由前缀，例如 "/wall"。默认为 ""
+	prefix string
+
 	// QR 登录状态
 	qrMu      sync.Mutex
 	qrCode    *qzone.QRCode
@@ -66,7 +70,15 @@ func NewServer(
 		qzClient:  qzClient,
 		renderer:  renderer,
 		uploadDir: "uploads",
+		// [配置] 在这里设置你的二级路径前缀，例如 "/wall"
+		// 如果在根目录运行，请保持为空字符串 ""
+		prefix: "/wall",
 	}
+}
+
+// [新增] 路径拼接辅助函数
+func (s *Server) url(p string) string {
+	return path.Join(s.prefix, p)
 }
 
 // Start 启动 HTTP 服务。
@@ -117,29 +129,36 @@ func (s *Server) Start() error {
 
 	mux := http.NewServeMux()
 
-	// 页面路由
-	mux.HandleFunc("/", s.handleIndex)
-	mux.HandleFunc("/login", s.handleLogin)
-	mux.HandleFunc("/logout", s.handleLogout)
-	mux.HandleFunc("/submit", s.handleSubmitPage)
-	mux.HandleFunc("/admin", s.handleAdminPage)
-	mux.HandleFunc("/icon.png", s.handleIcon)
-	mux.HandleFunc("/favicon.ico", s.handleFavicon)
+	// [修改] 使用 s.url() 包裹所有路由路径
+	mux.HandleFunc(s.url("/"), s.handleIndex)
+	mux.HandleFunc(s.url("/login"), s.handleLogin)
+	mux.HandleFunc(s.url("/logout"), s.handleLogout)
+	mux.HandleFunc(s.url("/submit"), s.handleSubmitPage)
+	mux.HandleFunc(s.url("/admin"), s.handleAdminPage)
+	mux.HandleFunc(s.url("/icon.png"), s.handleIcon)
+	mux.HandleFunc(s.url("/favicon.ico"), s.handleFavicon)
 
 	// API 路由
-	mux.HandleFunc("/api/submit", s.handleAPISubmit)
-	mux.HandleFunc("/api/approve", s.handleAPIApprove)
-	mux.HandleFunc("/api/reject", s.handleAPIReject)
-	mux.HandleFunc("/api/approve/batch", s.handleAPIBatchApprove)
-	mux.HandleFunc("/api/reject/batch", s.handleAPIBatchReject)
-	mux.HandleFunc("/api/qrcode", s.handleAPIQRCode)
-	mux.HandleFunc("/api/qrcode/status", s.handleAPIQRStatus)
-	mux.HandleFunc("/api/health", s.handleAPIHealth)
-	mux.HandleFunc("/api/qzone/status", s.handleAPIQzoneStatus)
-	mux.HandleFunc("/api/qzone/refresh", s.handleAPIQzoneRefresh)
+	mux.HandleFunc(s.url("/api/submit"), s.handleAPISubmit)
+	mux.HandleFunc(s.url("/api/approve"), s.handleAPIApprove)
+	mux.HandleFunc(s.url("/api/reject"), s.handleAPIReject)
+	mux.HandleFunc(s.url("/api/approve/batch"), s.handleAPIBatchApprove)
+	mux.HandleFunc(s.url("/api/reject/batch"), s.handleAPIBatchReject)
+	mux.HandleFunc(s.url("/api/qrcode"), s.handleAPIQRCode)
+	mux.HandleFunc(s.url("/api/qrcode/status"), s.handleAPIQRStatus)
+	mux.HandleFunc(s.url("/api/health"), s.handleAPIHealth)
+	mux.HandleFunc(s.url("/api/qzone/status"), s.handleAPIQzoneStatus)
+	mux.HandleFunc(s.url("/api/qzone/refresh"), s.handleAPIQzoneRefresh)
 
-	// 静态资源
-	mux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir(s.uploadDir))))
+	// [修复] 静态资源处理
+	// 1. 拼接前缀，例如 "/wall" + "/uploads" -> "/wall/uploads"
+	fsPath := s.url("/uploads")
+	// 2. 强制加上末尾斜杠，变成 "/wall/uploads/"，否则 Go 路由不会匹配子文件
+	if !strings.HasSuffix(fsPath, "/") {
+		fsPath += "/"
+	}
+	// 3. 注册 handler
+	mux.Handle(fsPath, http.StripPrefix(fsPath, http.FileServer(http.Dir(s.uploadDir))))
 
 	s.server = &http.Server{
 		Addr:    s.cfg.Addr,
@@ -147,7 +166,11 @@ func (s *Server) Start() error {
 	}
 
 	go func() {
+		// 这里生成的本地 URL 可能不包含前缀，仅供控制台显示
 		urlStr := localWebURL(s.cfg.Addr)
+		if s.prefix != "" {
+			urlStr = strings.TrimRight(urlStr, "/") + s.prefix
+		}
 		log.Printf("[Web] 监听 %s (%s)", s.cfg.Addr, urlStr)
 		go func() {
 			time.Sleep(500 * time.Millisecond)
@@ -182,15 +205,16 @@ func (s *Server) initAdmin() error {
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
+	// [修改] 检查路径时也要考虑前缀，或者直接重定向
+	if r.URL.Path != s.url("/") && r.URL.Path != s.url("") {
 		http.NotFound(w, r)
 		return
 	}
 	account := s.currentAccount(r)
 	if account != nil && account.IsAdmin() {
-		http.Redirect(w, r, "/admin", http.StatusFound)
+		http.Redirect(w, r, s.url("/admin"), http.StatusFound)
 	} else {
-		http.Redirect(w, r, "/submit", http.StatusFound)
+		http.Redirect(w, r, s.url("/submit"), http.StatusFound)
 	}
 }
 
@@ -198,10 +222,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
 		account := s.currentAccount(r)
 		if account != nil && account.IsAdmin() {
-			http.Redirect(w, r, "/admin", http.StatusFound)
+			http.Redirect(w, r, s.url("/admin"), http.StatusFound)
 			return
 		}
-		s.renderTemplate(w, "login.html", nil)
+		// [修改] 传递 Root
+		s.renderTemplate(w, "login.html", map[string]interface{}{"Root": s.prefix})
 		return
 	}
 
@@ -210,25 +235,26 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	account, err := s.store.GetAccount(username)
 	if err != nil || account == nil {
-		s.renderTemplate(w, "login.html", map[string]string{"Error": "用户名或密码错误"})
+		s.renderTemplate(w, "login.html", map[string]interface{}{"Error": "用户名或密码错误", "Root": s.prefix})
 		return
 	}
 	if hashPassword(password, account.Salt) != account.PasswordHash {
-		s.renderTemplate(w, "login.html", map[string]string{"Error": "用户名或密码错误"})
+		s.renderTemplate(w, "login.html", map[string]interface{}{"Error": "用户名或密码错误", "Root": s.prefix})
 		return
 	}
 	if !account.IsAdmin() {
-		s.renderTemplate(w, "login.html", map[string]string{"Error": "仅管理员可登录"})
+		s.renderTemplate(w, "login.html", map[string]interface{}{"Error": "仅管理员可登录", "Root": s.prefix})
 		return
 	}
 
 	token := randomHex(32)
 	expire := time.Now().Add(24 * time.Hour).Unix()
 	if err := s.store.CreateSession(token, account.ID, expire); err != nil {
-		s.renderTemplate(w, "login.html", map[string]string{"Error": "登录失败"})
+		s.renderTemplate(w, "login.html", map[string]interface{}{"Error": "登录失败", "Root": s.prefix})
 		return
 	}
 
+	// [注意] Cookie Path 需要设置为前缀，或者 "/" 取决于需求。通常 "/" 比较通用。
 	http.SetCookie(w, &http.Cookie{
 		Name:     "session",
 		Value:    token,
@@ -237,7 +263,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		HttpOnly: true,
 	})
 
-	http.Redirect(w, r, "/admin", http.StatusFound)
+	http.Redirect(w, r, s.url("/admin"), http.StatusFound)
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
@@ -250,29 +276,27 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		Path:   "/",
 		MaxAge: -1,
 	})
-	http.Redirect(w, r, "/submit", http.StatusFound)
+	http.Redirect(w, r, s.url("/submit"), http.StatusFound)
 }
 
 func (s *Server) handleSubmitPage(w http.ResponseWriter, r *http.Request) {
 	account := s.currentAccount(r)
 
-	// [新增] 获取 Qzone 状态
 	var qzoneUIN int64
 	var qzoneOnline bool
 	if s.qzClient != nil {
 		qzoneUIN = s.qzClient.UIN()
-		// 复用已有的检查逻辑
 		qzoneOnline = s.isQzoneLoggedIn()
 	}
 
 	data := map[string]interface{}{
-		"Account":   account,
-		"IsAdmin":   account != nil && account.IsAdmin(),
-		"MaxImages": s.wallCfg.MaxImages,
-		"Message":   r.URL.Query().Get("msg"),
-		// [新增] 传递给模板
+		"Account":     account,
+		"IsAdmin":     account != nil && account.IsAdmin(),
+		"MaxImages":   s.wallCfg.MaxImages,
+		"Message":     r.URL.Query().Get("msg"),
 		"QzoneUIN":    qzoneUIN,
 		"QzoneOnline": qzoneOnline,
+		"Root":        s.prefix, // [修改] 注入 Root
 	}
 	s.renderTemplate(w, "user.html", data)
 }
@@ -280,7 +304,7 @@ func (s *Server) handleSubmitPage(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAdminPage(w http.ResponseWriter, r *http.Request) {
 	account := s.currentAccount(r)
 	if account == nil || !account.IsAdmin() {
-		http.Redirect(w, r, "/login", http.StatusFound)
+		http.Redirect(w, r, s.url("/login"), http.StatusFound)
 		return
 	}
 
@@ -296,10 +320,8 @@ func (s *Server) handleAdminPage(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[Web] 查询投稿失败: %v", err)
 	}
 
-	// 🟢 修改：构建用于展示的 Post 列表，将 file ID 还原为 URL
 	displayPosts := make([]*model.Post, len(posts))
 	for i, p := range posts {
-		// 克隆并解析图片链接
 		displayPosts[i] = s.resolvePostImages(p)
 	}
 
@@ -311,7 +333,7 @@ func (s *Server) handleAdminPage(w http.ResponseWriter, r *http.Request) {
 
 	data := map[string]interface{}{
 		"Account":        account,
-		"Posts":          displayPosts, // 使用解析后的列表
+		"Posts":          displayPosts,
 		"TotalCount":     totalCount,
 		"PendingCount":   pendingCount,
 		"ApprovedCount":  approvedCount,
@@ -321,6 +343,7 @@ func (s *Server) handleAdminPage(w http.ResponseWriter, r *http.Request) {
 		"CookieValid":    s.isQzoneLoggedIn(),
 		"QzoneUIN":       int64(0),
 		"Message":        r.URL.Query().Get("msg"),
+		"Root":           s.prefix, // [修改] 注入 Root
 	}
 	if s.qzClient != nil {
 		data["QzoneUIN"] = s.qzClient.UIN()
@@ -378,6 +401,10 @@ func (s *Server) handleAPISubmit(w http.ResponseWriter, r *http.Request) {
 		_ = f.Close()
 		_ = dst.Close()
 
+		// [修改] 保存图片路径时，建议保存相对路径，展示时再拼前缀
+		// 或者保存带前缀的路径。这里为了兼容性，保持 "/uploads/..." 格式
+		// 但在 resolvePostImages 中处理展示逻辑会更灵活。
+		// 这里暂存为 /uploads/xxx，如果使用二级目录，前端 img src 需要加上 Root
 		images = append(images, "/uploads/"+filename)
 	}
 
@@ -514,7 +541,6 @@ func (s *Server) handleAPIBatchApprove(w http.ResponseWriter, r *http.Request) {
 		var renderErr error
 
 		if s.renderer != nil && s.renderer.Available() {
-			// 解析 fileID 为 URL
 			renderPost := s.resolvePostImages(post)
 			imgData, renderErr = s.renderer.RenderPost(renderPost)
 		} else {
@@ -946,7 +972,12 @@ func (s *Server) resolvePostImages(p *model.Post) *model.Post {
 	clone := *p
 	clone.Images = make([]string, len(p.Images))
 	for i, img := range p.Images {
-		clone.Images[i] = s.resolveImageURL(img)
+		// [修改] 如果是本地上传的图片，加上 prefix
+		if strings.HasPrefix(img, "/uploads/") {
+			clone.Images[i] = s.url(img)
+		} else {
+			clone.Images[i] = s.resolveImageURL(img)
+		}
 	}
 	return &clone
 }

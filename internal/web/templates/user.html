@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="icon" type="image/png" href="/icon.png">
+<link rel="icon" type="image/png" href="{{.Root}}/icon.png">
 <title>投稿 - 表白墙</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -177,16 +177,16 @@
 
   <div class="nav-actions">
     {{if .IsAdmin}}
-      <span class="user-chip">{{.Account.Username}}</span><span class="nav-sep">|</span><a href="/admin">管理后台</a><span class="nav-sep">|</span><a href="/logout">退出</a>
+      <span class="user-chip">{{.Account.Username}}</span><span class="nav-sep">|</span><a href="{{.Root}}/admin">管理后台</a><span class="nav-sep">|</span><a href="{{.Root}}/logout">退出</a>
     {{else}}
-      <a href="/login">管理员登录</a>
+      <a href="{{.Root}}/login">管理员登录</a>
     {{end}}
   </div>
 </div>
 <div class="container">
   {{if .Message}}<div class="msg ok">{{.Message}}</div>{{end}}
   <div class="card">
-    <form id="submitForm" method="POST" action="/api/submit" enctype="multipart/form-data">
+    <form id="submitForm" method="POST" action="{{.Root}}/api/submit" enctype="multipart/form-data">
       <div class="form-group">
         <label>QQ号</label>
         <input type="text" name="uin" placeholder="输入QQ号">
@@ -231,7 +231,7 @@ document.getElementById('submitForm').addEventListener('submit', async function(
   btn.disabled = true;
   btn.textContent = '提交中...';
   try {
-    const resp = await fetch('/api/submit', { method: 'POST', body: new FormData(this) });
+    const resp = await fetch('{{.Root}}/api/submit', { method: 'POST', body: new FormData(this) });
     const data = await resp.json();
     result.style.display = 'block';
     result.className = 'msg ' + (data.ok ? 'ok' : 'err');

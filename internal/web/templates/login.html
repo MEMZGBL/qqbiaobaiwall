@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="icon" type="image/png" href="/icon.png">
+<link rel="icon" type="image/png" href="{{.Root}}/icon.png">
 <title>登录 - 表白墙</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -69,7 +69,7 @@
   <h1>💌 表白墙</h1>
   <p class="subtitle">仅管理员登录</p>
   {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
-  <form method="POST" action="/login">
+  <form method="POST" action="{{.Root}}/login">
     <div class="form-group">
       <label>用户名</label>
       <input type="text" name="username" required autofocus>
